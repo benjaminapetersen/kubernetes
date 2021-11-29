@@ -54,6 +54,9 @@ func newDynamicRequestHeaderController(client kubernetes.Interface) (*DynamicReq
 		authenticationConfigMapNamespace,
 		client,
 		"requestheader-username-headers",
+		// TODO: BEN
+		// ADD: uid-headers.  "username, uid, groups, extra" is the correct order :)
+		"requestheader-allowed-uid",
 		"requestheader-group-headers",
 		"requestheader-extra-headers-prefix",
 		"requestheader-allowed-names",

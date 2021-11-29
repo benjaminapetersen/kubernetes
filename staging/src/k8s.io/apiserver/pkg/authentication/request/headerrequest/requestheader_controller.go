@@ -22,6 +22,8 @@ import (
 	"fmt"
 	"time"
 
+	"sync/atomic"
+
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -35,7 +37,6 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
-	"sync/atomic"
 )
 
 const (
@@ -86,11 +87,7 @@ type RequestHeaderAuthRequestController struct {
 }
 
 // NewRequestHeaderAuthRequestController creates a new controller that implements RequestHeaderAuthRequestController
-func NewRequestHeaderAuthRequestController(
-	cmName string,
-	cmNamespace string,
-	client kubernetes.Interface,
-	usernameHeadersKey, groupHeadersKey, extraHeaderPrefixesKey, allowedClientNamesKey string) *RequestHeaderAuthRequestController {
+func NewRequestHeaderAuthRequestController(cmName, cmNamespace string, client kubernetes.Interface, usernameHeadersKey, groupHeadersKey, extraHeaderPrefixesKey, allowedClientNamesKey, s string) *RequestHeaderAuthRequestController {
 	c := &RequestHeaderAuthRequestController{
 		name: "RequestHeaderAuthRequestController",
 
@@ -100,6 +97,8 @@ func NewRequestHeaderAuthRequestController(
 		configmapNamespace: cmNamespace,
 
 		usernameHeadersKey:     usernameHeadersKey,
+		// TODO.....BEN
+		// uidHeaderKey: DO THIS
 		groupHeadersKey:        groupHeadersKey,
 		extraHeaderPrefixesKey: extraHeaderPrefixesKey,
 		allowedClientNamesKey:  allowedClientNamesKey,
