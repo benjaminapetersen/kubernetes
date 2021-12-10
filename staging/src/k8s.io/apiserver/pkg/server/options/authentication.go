@@ -53,7 +53,10 @@ type RequestHeaderAuthenticationOptions struct {
 	// before trusting usernames in headers.
 	ClientCAFile string
 
-	UsernameHeaders     []string
+	UsernameHeaders []string
+	// TODO (BEN):
+	//   this is the variable I am adding to everything :)
+	UIDHeaders          []string
 	GroupHeaders        []string
 	ExtraHeaderPrefixes []string
 	AllowedNames        []string
@@ -63,6 +66,9 @@ func (s *RequestHeaderAuthenticationOptions) Validate() []error {
 	allErrors := []error{}
 
 	if err := checkForWhiteSpaceOnly("requestheader-username-headers", s.UsernameHeaders...); err != nil {
+		allErrors = append(allErrors, err)
+	}
+	if err := checkForWhiteSpaceOnly("requestheader-uid-headers", s.UIDHeaders...); err != nil {
 		allErrors = append(allErrors, err)
 	}
 	if err := checkForWhiteSpaceOnly("requestheader-group-headers", s.GroupHeaders...); err != nil {
@@ -96,6 +102,11 @@ func (s *RequestHeaderAuthenticationOptions) AddFlags(fs *pflag.FlagSet) {
 	fs.StringSliceVar(&s.UsernameHeaders, "requestheader-username-headers", s.UsernameHeaders, ""+
 		"List of request headers to inspect for usernames. X-Remote-User is common.")
 
+	// TODO (BEN): remove this note.
+	//   this allows for multiple headers to be configured.
+	fs.StringSliceVar(&s.UIDHeaders, "requestheader-uid-headers", s.UIDHeaders, ""+
+		"List of request headers to inspect for UIDs. X-Remote-Uid is common.")
+
 	fs.StringSliceVar(&s.GroupHeaders, "requestheader-group-headers", s.GroupHeaders, ""+
 		"List of request headers to inspect for groups. X-Remote-Group is suggested.")
 
@@ -127,6 +138,7 @@ func (s *RequestHeaderAuthenticationOptions) ToAuthenticationRequestHeaderConfig
 
 	return &authenticatorfactory.RequestHeaderConfig{
 		UsernameHeaders:     headerrequest.StaticStringSlice(s.UsernameHeaders),
+		UIDHeaders:          headerrequest.StaticStringSlice(s.UIDHeaders),
 		GroupHeaders:        headerrequest.StaticStringSlice(s.GroupHeaders),
 		ExtraHeaderPrefixes: headerrequest.StaticStringSlice(s.ExtraHeaderPrefixes),
 		CAContentProvider:   caBundleProvider,
@@ -210,6 +222,7 @@ func NewDelegatingAuthenticationOptions() *DelegatingAuthenticationOptions {
 		ClientCert: ClientCertAuthenticationOptions{},
 		RequestHeader: RequestHeaderAuthenticationOptions{
 			UsernameHeaders:     []string{"x-remote-user"},
+			UIDHeaders:          []string{"x-remote-uid"},
 			GroupHeaders:        []string{"x-remote-group"},
 			ExtraHeaderPrefixes: []string{"x-remote-extra-"},
 		},
@@ -394,6 +407,7 @@ func (s *DelegatingAuthenticationOptions) createRequestHeaderConfig(client kuber
 	return &authenticatorfactory.RequestHeaderConfig{
 		CAContentProvider:   dynamicRequestHeaderProvider,
 		UsernameHeaders:     headerrequest.StringSliceProvider(headerrequest.StringSliceProviderFunc(dynamicRequestHeaderProvider.UsernameHeaders)),
+		UIDHeaders:          headerrequest.StringSliceProvider(headerrequest.StringSliceProviderFunc(dynamicRequestHeaderProvider.UIDHeaders)),
 		GroupHeaders:        headerrequest.StringSliceProvider(headerrequest.StringSliceProviderFunc(dynamicRequestHeaderProvider.GroupHeaders)),
 		ExtraHeaderPrefixes: headerrequest.StringSliceProvider(headerrequest.StringSliceProviderFunc(dynamicRequestHeaderProvider.ExtraHeaderPrefixes)),
 		AllowedClientNames:  headerrequest.StringSliceProvider(headerrequest.StringSliceProviderFunc(dynamicRequestHeaderProvider.AllowedClientNames)),

@@ -20,9 +20,9 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
-	"reflect"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
 	"k8s.io/apiserver/pkg/authentication/authenticatorfactory"
 	"k8s.io/apiserver/pkg/authentication/request/headerrequest"
 	"k8s.io/apiserver/pkg/server"
@@ -39,22 +39,28 @@ func TestToAuthenticationRequestHeaderConfig(t *testing.T) {
 			name: "test when ClientCAFile is nil",
 			testOptions: &RequestHeaderAuthenticationOptions{
 				UsernameHeaders:     headerrequest.StaticStringSlice{"x-remote-user"},
+				UIDHeaders:          headerrequest.StaticStringSlice{"x-remote-uid"},
 				GroupHeaders:        headerrequest.StaticStringSlice{"x-remote-group"},
 				ExtraHeaderPrefixes: headerrequest.StaticStringSlice{"x-remote-extra-"},
 				AllowedNames:        headerrequest.StaticStringSlice{"kube-aggregator"},
 			},
+			// TODO: this test passes even if the above fields are not provided.
+			// TODO: figure out why this test passes, it should get an expectConfig...
+			// expectConfig: &authenticatorfactory.RequestHeaderConfig{},
 		},
 		{
 			name: "test when ClientCAFile is not nil",
 			testOptions: &RequestHeaderAuthenticationOptions{
 				ClientCAFile:        "testdata/root.pem",
 				UsernameHeaders:     headerrequest.StaticStringSlice{"x-remote-user"},
+				UIDHeaders:          headerrequest.StaticStringSlice{"x-remote-uid"},
 				GroupHeaders:        headerrequest.StaticStringSlice{"x-remote-group"},
 				ExtraHeaderPrefixes: headerrequest.StaticStringSlice{"x-remote-extra-"},
 				AllowedNames:        headerrequest.StaticStringSlice{"kube-aggregator"},
 			},
 			expectConfig: &authenticatorfactory.RequestHeaderConfig{
 				UsernameHeaders:     headerrequest.StaticStringSlice{"x-remote-user"},
+				UIDHeaders:          headerrequest.StaticStringSlice{"x-remote-uid"},
 				GroupHeaders:        headerrequest.StaticStringSlice{"x-remote-group"},
 				ExtraHeaderPrefixes: headerrequest.StaticStringSlice{"x-remote-extra-"},
 				CAContentProvider:   nil, // this is nil because you can't compare functions
@@ -76,8 +82,8 @@ func TestToAuthenticationRequestHeaderConfig(t *testing.T) {
 				resultConfig.CAContentProvider = nil
 			}
 
-			if !reflect.DeepEqual(resultConfig, testcase.expectConfig) {
-				t.Errorf("got RequestHeaderConfig: %#v, expected RequestHeaderConfig: %#v", resultConfig, testcase.expectConfig)
+			if diff := cmp.Diff(testcase.expectConfig, resultConfig); diff != "" {
+				t.Errorf("Unexpected config diff (-want, +got): %s", diff)
 			}
 		})
 	}

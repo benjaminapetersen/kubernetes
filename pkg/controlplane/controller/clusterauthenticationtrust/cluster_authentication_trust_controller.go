@@ -77,6 +77,11 @@ type ClusterAuthenticationInfo struct {
 
 	// RequestHeaderUsernameHeaders are the headers used by this kube-apiserver to determine username
 	RequestHeaderUsernameHeaders headerrequest.StringSliceProvider
+
+	// TODO (BEN): update this.
+	// RequestHeaderUsernameHeaders are the headers used by this kube-apiserver to determine username
+	RequestHeaderUIDHeaders headerrequest.StringSliceProvider
+
 	// RequestHeaderGroupHeaders are the headers used by this kube-apiserver to determine groups
 	RequestHeaderGroupHeaders headerrequest.StringSliceProvider
 	// RequestHeaderExtraHeaderPrefixes are the headers used by this kube-apiserver to determine user.extra
@@ -88,8 +93,9 @@ type ClusterAuthenticationInfo struct {
 }
 
 // NewClusterAuthenticationTrustController returns a controller that will maintain the kube-system configmap/extension-apiserver-authentication
-// that holds information about how to aggregated apiservers are recommended (but not required) to configure themselves.
+// that holds information about how aggregated apiservers are recommended (but not required) to configure themselves.
 func NewClusterAuthenticationTrustController(requiredAuthenticationData ClusterAuthenticationInfo, kubeClient kubernetes.Interface) *Controller {
+	// TODO (BEN/MO): fix this, the metadata.name filter is missing
 	// we construct our own informer because we need such a small subset of the information available.  Just one namespace.
 	kubeSystemConfigMapInformer := corev1informers.NewConfigMapInformer(kubeClient, configMapNamespace, 12*time.Hour, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc})
 

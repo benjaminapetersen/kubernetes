@@ -18,10 +18,10 @@ package headerrequest
 
 import (
 	"encoding/json"
-	"k8s.io/apimachinery/pkg/api/equality"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
 	corev1listers "k8s.io/client-go/listers/core/v1"
@@ -33,13 +33,15 @@ const (
 	defConfigMapNamespace = "kube-system"
 
 	defUsernameHeadersKey     = "user-key"
+	defUIDHeadersKey          = "uid-key"
 	defGroupHeadersKey        = "group-key"
 	defExtraHeaderPrefixesKey = "extra-key"
 	defAllowedClientNamesKey  = "names-key"
 )
 
 type expectedHeadersHolder struct {
-	usernameHeaders     []string
+	usernameHeaders []string
+	// TODO (BEN): Fix the test by including UID headers here
 	groupHeaders        []string
 	extraHeaderPrefixes []string
 	allowedClientNames  []string
@@ -203,7 +205,8 @@ func TestRequestHeaderAuthRequestControllerSyncOnce(t *testing.T) {
 	}{
 		{
 			name: "headers values are populated form a config map",
-			cm:   defaultConfigMap(t, []string{"user-val"}, []string{"group-val"}, []string{"extra-val"}, []string{"names-val"}),
+			// TODO (BEN): this needs an update
+			cm: defaultConfigMap(t, []string{"user-val"}, []string{"group-val"}, []string{"extra-val"}, []string{"names-val"}),
 			expectedHeader: expectedHeadersHolder{
 				usernameHeaders:     []string{"user-val"},
 				groupHeaders:        []string{"group-val"},
@@ -263,6 +266,7 @@ func newDefaultTarget() *RequestHeaderAuthRequestController {
 		configmapName:          defConfigMapName,
 		configmapNamespace:     defConfigMapNamespace,
 		usernameHeadersKey:     defUsernameHeadersKey,
+		uidHeadersKey:          defUIDHeadersKey,
 		groupHeadersKey:        defGroupHeadersKey,
 		extraHeaderPrefixesKey: defExtraHeaderPrefixesKey,
 		allowedClientNamesKey:  defAllowedClientNamesKey,
