@@ -101,6 +101,7 @@ func TestWriteClientCAs(t *testing.T) {
 			clusterAuthInfo: ClusterAuthenticationInfo{
 				ClientCA:                         someRandomCAProvider,
 				RequestHeaderUsernameHeaders:     headerrequest.StaticStringSlice{"alfa", "bravo", "charlie"},
+				RequestHeaderUIDHeaders:          headerrequest.StaticStringSlice{"123", "456"},
 				RequestHeaderGroupHeaders:        headerrequest.StaticStringSlice{"delta"},
 				RequestHeaderExtraHeaderPrefixes: headerrequest.StaticStringSlice{"echo", "foxtrot"},
 				RequestHeaderCA:                  anotherRandomCAProvider,
@@ -110,8 +111,11 @@ func TestWriteClientCAs(t *testing.T) {
 				"extension-apiserver-authentication": {
 					ObjectMeta: metav1.ObjectMeta{Namespace: metav1.NamespaceSystem, Name: "extension-apiserver-authentication"},
 					Data: map[string]string{
-						"client-ca-file":                     string(someRandomCA),
-						"requestheader-username-headers":     `["alfa","bravo","charlie"]`,
+						"client-ca-file":                 string(someRandomCA),
+						"requestheader-username-headers": `["alfa","bravo","charlie"]`,
+						// TODO (BEN) : keep updating these tests!
+						//   - I forget what else i had to do here but there was some data to update
+						"requestheader-uid-headers":          `["123", "456"]`,
 						"requestheader-group-headers":        `["delta"]`,
 						"requestheader-extra-headers-prefix": `["echo","foxtrot"]`,
 						"requestheader-client-ca-file":       string(anotherRandomCA),

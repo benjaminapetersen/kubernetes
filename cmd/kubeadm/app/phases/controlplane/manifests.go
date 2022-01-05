@@ -178,6 +178,7 @@ func getAPIServerCommand(cfg *kubeadmapi.ClusterConfiguration, localAPIEndpoint 
 		// add options to configure the front proxy.  Without the generated client cert, this will never be useable
 		// so add it unconditionally with recommended values
 		"requestheader-username-headers":     "X-Remote-User",
+		"requestheader-uid-headers":          "X-Remote-Uid",
 		"requestheader-group-headers":        "X-Remote-Group",
 		"requestheader-extra-headers-prefix": "X-Remote-Extra-",
 		"requestheader-client-ca-file":       filepath.Join(cfg.CertificatesDir, kubeadmconstants.FrontProxyCACertName),

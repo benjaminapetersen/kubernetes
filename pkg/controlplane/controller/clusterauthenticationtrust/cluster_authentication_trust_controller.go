@@ -74,11 +74,13 @@ type Controller struct {
 type ClusterAuthenticationInfo struct {
 	// ClientCA is the CA that can be used to verify the identity of normal clients
 	ClientCA dynamiccertificates.CAContentProvider
-
 	// RequestHeaderUsernameHeaders are the headers used by this kube-apiserver to determine username
 	RequestHeaderUsernameHeaders headerrequest.StringSliceProvider
 
-	// TODO (BEN): update this.
+	// TODO (BEN): update this. and then delete the extra spaces :)
+	//   - KEEP LOOKING FOR RequestHeaderUsernameHeaders (ctrl+click) and find all usages
+	//     and make sure that all of them have RequestHeaderUIDHeaders also.
+	//     I believe I already did the ones in code, just have the tests to update now.
 	// RequestHeaderUsernameHeaders are the headers used by this kube-apiserver to determine username
 	RequestHeaderUIDHeaders headerrequest.StringSliceProvider
 
@@ -223,10 +225,11 @@ func writeConfigMap(configMapClient corev1client.ConfigMapsGetter, required *cor
 // combinedClusterAuthenticationInfo combines two sets of authentication information into a new one
 func combinedClusterAuthenticationInfo(lhs, rhs ClusterAuthenticationInfo) (ClusterAuthenticationInfo, error) {
 	ret := ClusterAuthenticationInfo{
-		RequestHeaderAllowedNames:        combineUniqueStringSlices(lhs.RequestHeaderAllowedNames, rhs.RequestHeaderAllowedNames),
-		RequestHeaderExtraHeaderPrefixes: combineUniqueStringSlices(lhs.RequestHeaderExtraHeaderPrefixes, rhs.RequestHeaderExtraHeaderPrefixes),
-		RequestHeaderGroupHeaders:        combineUniqueStringSlices(lhs.RequestHeaderGroupHeaders, rhs.RequestHeaderGroupHeaders),
 		RequestHeaderUsernameHeaders:     combineUniqueStringSlices(lhs.RequestHeaderUsernameHeaders, rhs.RequestHeaderUsernameHeaders),
+		RequestHeaderUIDHeaders:          combineUniqueStringSlices(lhs.RequestHeaderUIDHeaders, rhs.RequestHeaderUIDHeaders),
+		RequestHeaderGroupHeaders:        combineUniqueStringSlices(lhs.RequestHeaderGroupHeaders, rhs.RequestHeaderGroupHeaders),
+		RequestHeaderExtraHeaderPrefixes: combineUniqueStringSlices(lhs.RequestHeaderExtraHeaderPrefixes, rhs.RequestHeaderExtraHeaderPrefixes),
+		RequestHeaderAllowedNames:        combineUniqueStringSlices(lhs.RequestHeaderAllowedNames, rhs.RequestHeaderAllowedNames),
 	}
 
 	var err error
@@ -262,6 +265,10 @@ func getConfigMapDataFor(authenticationInfo ClusterAuthenticationInfo) (map[stri
 		if err != nil {
 			return nil, err
 		}
+		data["requestheader-uid-headers"], err = jsonSerializeStringSlice(authenticationInfo.RequestHeaderUIDHeaders.Value())
+		if err != nil {
+			return nil, err
+		}
 		data["requestheader-group-headers"], err = jsonSerializeStringSlice(authenticationInfo.RequestHeaderGroupHeaders.Value())
 		if err != nil {
 			return nil, err
@@ -285,6 +292,14 @@ func getClusterAuthenticationInfoFor(data map[string]string) (ClusterAuthenticat
 	ret := ClusterAuthenticationInfo{}
 
 	var err error
+	ret.RequestHeaderUsernameHeaders, err = jsonDeserializeStringSlice(data["requestheader-username-headers"])
+	if err != nil {
+		return ClusterAuthenticationInfo{}, err
+	}
+	ret.RequestHeaderUIDHeaders, err = jsonDeserializeStringSlice(data["requestheader-uid-headers"])
+	if err != nil {
+		return ClusterAuthenticationInfo{}, err
+	}
 	ret.RequestHeaderGroupHeaders, err = jsonDeserializeStringSlice(data["requestheader-group-headers"])
 	if err != nil {
 		return ClusterAuthenticationInfo{}, err
@@ -294,10 +309,6 @@ func getClusterAuthenticationInfoFor(data map[string]string) (ClusterAuthenticat
 		return ClusterAuthenticationInfo{}, err
 	}
 	ret.RequestHeaderAllowedNames, err = jsonDeserializeStringSlice(data["requestheader-allowed-names"])
-	if err != nil {
-		return ClusterAuthenticationInfo{}, err
-	}
-	ret.RequestHeaderUsernameHeaders, err = jsonDeserializeStringSlice(data["requestheader-username-headers"])
 	if err != nil {
 		return ClusterAuthenticationInfo{}, err
 	}

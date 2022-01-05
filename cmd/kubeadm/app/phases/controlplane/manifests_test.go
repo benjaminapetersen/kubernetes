@@ -188,6 +188,7 @@ func TestCreateStaticPodFilesWithPatches(t *testing.T) {
 	}
 }
 
+// TODO (BEN): update this test to include uid as well...
 func TestGetAPIServerCommand(t *testing.T) {
 	var tests = []struct {
 		name     string
