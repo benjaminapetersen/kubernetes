@@ -212,7 +212,9 @@ func TestToAuthenticationConfig(t *testing.T) {
 		TokenFailureCacheTTL: 0,
 
 		RequestHeaderConfig: &authenticatorfactory.RequestHeaderConfig{
-			UsernameHeaders:     headerrequest.StaticStringSlice{"x-remote-user"},
+			UsernameHeaders: headerrequest.StaticStringSlice{"x-remote-user"},
+			// TODO (BEN): update the test here!
+			UIDHeaders:          headerrequest.StaticStringSlice{"x-remote-uid"},
 			GroupHeaders:        headerrequest.StaticStringSlice{"x-remote-group"},
 			ExtraHeaderPrefixes: headerrequest.StaticStringSlice{"x-remote-extra-"},
 			CAContentProvider:   nil, // this is nil because you can't compare functions
