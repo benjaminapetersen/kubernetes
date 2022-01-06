@@ -777,6 +777,8 @@ runTests() {
   record_command run_exec_credentials_tests
   record_command run_exec_credentials_interactive_tests
 
+  record_command run_cluster_authentication_trust_tests
+
   ########################
   # authorization.k8s.io #
   ########################

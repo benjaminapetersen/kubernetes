@@ -278,3 +278,11 @@ EOF
   set +o nounset
   set +o errexit
 }
+
+run_cluster_authentication_trust_tests() {
+  # Command
+  output=$(kubectl "${kube_flags_with_token[@]:?}" get configmap -n kube-system extension-apiserver-authentication -o json)
+  kube::log::status "${output}"
+
+  exit 1 # fail until we succeed :)
+}
