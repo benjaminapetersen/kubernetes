@@ -64,6 +64,11 @@ function run_kube_apiserver() {
   # Enable features
   ENABLE_FEATURE_GATES="ServerSideApply=true"
 
+  # TODO (BEN): we need the --requestheader-username-headers and rest of the headers to be in the configmap
+  #   when we run make test-cmd
+  #      make test-cmd WHAT=cluster_authentication_trust
+  #   there is a configmap printed in the test output.
+  #   this configmap should have the additional fields
   "${KUBE_OUTPUT_HOSTBIN}/kube-apiserver" \
     --bind-address="127.0.0.1" \
     --authorization-mode="${AUTHORIZATION_MODE}" \
@@ -81,6 +86,11 @@ function run_kube_apiserver() {
     --cert-dir="${TMPDIR:-/tmp/}" \
     --service-cluster-ip-range="10.0.0.0/24" \
     --client-ca-file=hack/testdata/ca.crt \
+    --requestheader-username-headers="panda" \
+    --requestheader-uid-headers="snorlax" \
+    --requestheader-group-headers="capybara" \
+    --requestheader-extra-headers-prefix="bulbasaur-" \
+    --requestheader-client-ca-file=hack/testdata/tls.crt \
     --token-auth-file=hack/testdata/auth-tokens.csv 1>&2 &
   export APISERVER_PID=$!
 
