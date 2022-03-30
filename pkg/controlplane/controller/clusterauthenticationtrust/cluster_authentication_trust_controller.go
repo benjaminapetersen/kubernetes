@@ -101,6 +101,22 @@ func NewClusterAuthenticationTrustController(requiredAuthenticationData ClusterA
 	// we construct our own informer because we need such a small subset of the information available.  Just one namespace.
 	kubeSystemConfigMapInformer := corev1informers.NewConfigMapInformer(kubeClient, configMapNamespace, 12*time.Hour, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc})
 
+	// TODO (BEN): log stuff to see what we get
+	// - output in tests does indeed show the wiring is correct, we see some output.
+	// this at leasts proves the contorller was initialized, even if it was not run.
+	// but we also see:
+	//     I0128 10:10:56.020809    5680 cluster_authentication_trust_controller.go:468] Starting cluster_authentication_trust_controller controller
+	// so it was run
+	klog.ErrorS(fmt.Errorf("foo 🦄 🦄 🦄"), "Wheeeeeeeee 🦄 🦄 🦄",
+		"info", requiredAuthenticationData,
+		"uid", requiredAuthenticationData.RequestHeaderUIDHeaders.Value(),
+		"username", requiredAuthenticationData.RequestHeaderUsernameHeaders.Value(),
+		"group", requiredAuthenticationData.RequestHeaderGroupHeaders.Value(),
+		"prefixes", requiredAuthenticationData.RequestHeaderExtraHeaderPrefixes.Value(),
+		"allowed names", requiredAuthenticationData.RequestHeaderAllowedNames.Value(),
+		"header CA", string(requiredAuthenticationData.RequestHeaderCA.CurrentCABundleContent()),
+		"clientCA", string(requiredAuthenticationData.ClientCA.CurrentCABundleContent()))
+
 	c := &Controller{
 		requiredAuthenticationData:  requiredAuthenticationData,
 		configMapLister:             corev1listers.NewConfigMapLister(kubeSystemConfigMapInformer.GetIndexer()),
@@ -141,6 +157,7 @@ func NewClusterAuthenticationTrustController(requiredAuthenticationData ClusterA
 	return c
 }
 
+// TODO(BEN): is this working?
 func (c *Controller) syncConfigMap() error {
 	originalAuthConfigMap, err := c.configMapLister.ConfigMaps(configMapNamespace).Get(configMapName)
 	if apierrors.IsNotFound(err) {
@@ -150,6 +167,12 @@ func (c *Controller) syncConfigMap() error {
 	} else if err != nil {
 		return err
 	}
+
+	klog.ErrorS(
+		fmt.Errorf("Ben:SyncConfigMap() 🦄 🦄 🦄"),
+		"what is original auth config map?",
+		"original auth configmap 🦄", originalAuthConfigMap)
+
 	// keep the original to diff against later before updating
 	authConfigMap := originalAuthConfigMap.DeepCopy()
 
@@ -157,20 +180,42 @@ func (c *Controller) syncConfigMap() error {
 	if err != nil {
 		return err
 	}
-	combinedInfo, err := combinedClusterAuthenticationInfo(existingAuthenticationInfo, c.requiredAuthenticationData)
+
+	klog.ErrorS(
+		fmt.Errorf("Ben:SyncConfigMap() 🦄 🦄 🦄 🦄"),
+		"what is existing auth config map?",
+		"existing auth configmap 🦄", existingAuthenticationInfo)
+
+	combinedInfo, err := combinedClusterAuthenticationInfo(existingAuthenticationInfo, c.requiredAuthenticationData) // TODO (BEN): I could also log this....
 	if err != nil {
 		return err
 	}
-	authConfigMap.Data, err = getConfigMapDataFor(combinedInfo)
+
+	klog.ErrorS(
+		fmt.Errorf("Ben:SyncConfigMap() 🦄 🦄 🦄 🦄 🦄"),
+		"what is combined info?",
+		"combined 🦄", combinedInfo)
+
+	authConfigMap.Data, err = getConfigMapDataFor(combinedInfo) // TODO: does this filter things out?
 	if err != nil {
 		return err
 	}
+
+	klog.ErrorS(
+		fmt.Errorf("Ben:SyncConfigMap() 🦄 🦄 🦄 🦄 🦄 🦄"),
+		"what is auth config map?",
+		"Data 🦄", authConfigMap.Data) // TODO! HERE IT IS.... WHY DON"T WE HAVE THE DATA WE WANT??
 
 	if equality.Semantic.DeepEqual(authConfigMap, originalAuthConfigMap) {
 		klog.V(5).Info("no changes to configmap")
 		return nil
 	}
 	klog.V(2).Infof("writing updated authentication info to  %s configmaps/%s", configMapNamespace, configMapName)
+
+	klog.ErrorS(
+		fmt.Errorf("Ben:SyncConfigMap() 🦄 🦄 🦄 🦄 🦄 🦄"),
+		"writing updated authentication info to  %s configmaps/%s", configMapNamespace, configMapName,
+		"", "")
 
 	if err := createNamespaceIfNeeded(c.namespaceClient, authConfigMap.Namespace); err != nil {
 		return err
@@ -256,7 +301,11 @@ func getConfigMapDataFor(authenticationInfo ClusterAuthenticationInfo) (map[stri
 	if authenticationInfo.RequestHeaderCA == nil {
 		return data, nil
 	}
-
+	// TODO (BEN):
+	// heh, if the CA is not set, the headers are not written.
+	// the headers have no meaning without a CA to trust.
+	// we need mTLS to trust the headers.
+	// THEREFORE we have to check and see if hte test-cmd.sh is passing hte correct value; it wasn't :)
 	if caBytes := authenticationInfo.RequestHeaderCA.CurrentCABundleContent(); len(caBytes) > 0 {
 		var err error
 
@@ -496,6 +545,7 @@ func (c *Controller) processNextWorkItem() bool {
 	// you always have to indicate to the queue that you've completed a piece of work
 	defer c.queue.Done(key)
 
+	// TODO: BEN..... tracking.
 	// do your work on the key.  This method will contains your "do stuff" logic
 	err := c.syncConfigMap()
 	if err == nil {

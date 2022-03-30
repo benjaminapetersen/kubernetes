@@ -69,6 +69,8 @@ function run_kube_apiserver() {
   #      make test-cmd WHAT=cluster_authentication_trust
   #   there is a configmap printed in the test output.
   #   this configmap should have the additional fields
+  #  - NOTE: look for hte pokemon here :)
+  #  - TODO(BEN): the requestheader-client-ca-file should be a diffferent CA file than the client-ca-file
   "${KUBE_OUTPUT_HOSTBIN}/kube-apiserver" \
     --bind-address="127.0.0.1" \
     --authorization-mode="${AUTHORIZATION_MODE}" \
@@ -90,7 +92,7 @@ function run_kube_apiserver() {
     --requestheader-uid-headers="snorlax" \
     --requestheader-group-headers="capybara" \
     --requestheader-extra-headers-prefix="bulbasaur-" \
-    --requestheader-client-ca-file=hack/testdata/tls.crt \
+    --requestheader-client-ca-file=hack/testdata/ca.crt \
     --token-auth-file=hack/testdata/auth-tokens.csv 1>&2 &
   export APISERVER_PID=$!
 
