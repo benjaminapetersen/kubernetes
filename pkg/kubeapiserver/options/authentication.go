@@ -241,6 +241,7 @@ func (o *BuiltInAuthenticationOptions) Validate() []error {
 	return allErrors
 }
 
+// TODO(BEN): ????
 // AddFlags returns flags of authentication for a API Server
 func (o *BuiltInAuthenticationOptions) AddFlags(fs *pflag.FlagSet) {
 	fs.StringSliceVar(&o.APIAudiences, "api-audiences", o.APIAudiences, ""+
@@ -309,7 +310,7 @@ func (o *BuiltInAuthenticationOptions) AddFlags(fs *pflag.FlagSet) {
 	}
 
 	if o.RequestHeader != nil {
-		o.RequestHeader.AddFlags(fs)
+		o.RequestHeader.AddFlags(fs) // TODO(BEN): follow this...
 	}
 
 	if o.ServiceAccounts != nil {

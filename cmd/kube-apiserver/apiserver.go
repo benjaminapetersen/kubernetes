@@ -28,8 +28,11 @@ import (
 	"k8s.io/kubernetes/cmd/kube-apiserver/app"
 )
 
+//  TODO(BEN): top level func of the API server
 func main() {
+	// TODO(BEN): dig into this to find where our flags are being set...
 	command := app.NewAPIServerCommand()
+
 	code := cli.Run(command)
 	os.Exit(code)
 }

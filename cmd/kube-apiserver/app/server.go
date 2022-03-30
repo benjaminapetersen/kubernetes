@@ -95,6 +95,8 @@ func checkNonZeroInsecurePort(fs *pflag.FlagSet) error {
 	return nil
 }
 
+// TODO(BEN): this is the cmd started....
+//    there shoudl be something about our flags passed through here
 // NewAPIServerCommand creates a *cobra.Command object with default parameters
 func NewAPIServerCommand() *cobra.Command {
 	s := options.NewServerRunOptions()
@@ -151,6 +153,7 @@ cluster's shared state through which all other components interact.`,
 		},
 	}
 
+	// TODO(BEN): What does these functions do?
 	fs := cmd.Flags()
 	namedFlagSets := s.Flags()
 	verflag.AddFlags(namedFlagSets.FlagSet("global"))

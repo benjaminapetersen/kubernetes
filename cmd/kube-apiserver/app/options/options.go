@@ -165,6 +165,7 @@ func addDummyInsecureFlags(fs *pflag.FlagSet) {
 	}
 }
 
+// TODO(BEN): this seems worth looking into....
 // Flags returns flags for a specific APIServer by section name
 func (s *ServerRunOptions) Flags() (fss cliflag.NamedFlagSets) {
 	// Add the generic flags.
@@ -174,7 +175,7 @@ func (s *ServerRunOptions) Flags() (fss cliflag.NamedFlagSets) {
 	addDummyInsecureFlags(fss.FlagSet("insecure serving"))
 	s.Audit.AddFlags(fss.FlagSet("auditing"))
 	s.Features.AddFlags(fss.FlagSet("features"))
-	s.Authentication.AddFlags(fss.FlagSet("authentication"))
+	s.Authentication.AddFlags(fss.FlagSet("authentication")) // TODO(BEN): dig deeper!
 	s.Authorization.AddFlags(fss.FlagSet("authorization"))
 	s.CloudProvider.AddFlags(fss.FlagSet("cloud provider"))
 	s.APIEnablement.AddFlags(fss.FlagSet("API enablement"))

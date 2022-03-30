@@ -93,7 +93,9 @@ func checkForWhiteSpaceOnly(flag string, headerNames ...string) error {
 
 	return nil
 }
-
+// TODO: BEN: can't edit, its vendor symlink, but followed....
+// seems like its correct, we wired them up
+// so are they consumed correctly? or is the controller not turned on correctly in the tests? or can you not turn the api server controller off?
 func (s *RequestHeaderAuthenticationOptions) AddFlags(fs *pflag.FlagSet) {
 	if s == nil {
 		return
