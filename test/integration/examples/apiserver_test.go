@@ -82,14 +82,42 @@ func TestAggregatedAPIServer(t *testing.T) {
 		o := sampleserver.NewWardleServerOptions(os.Stdout, os.Stderr)
 		o.RecommendedOptions.SecureServing.Listener = listener
 		o.RecommendedOptions.SecureServing.BindAddress = netutils.ParseIPSloppy("127.0.0.1")
+		o.RecommendedOptions.Authorization.CustomRoundTripperFn = func(rt http.RoundTripper) http.RoundTripper {
+			// somewhere in this thing, there is an API Service serving an API.
+			// the wardle API.
+			// within this test, we make a service account token
+			// then, use it against the API.
+			// when that aggregated API server sees the identity,
+			// it will make an authorization check to make sure the API server can do what its asking
+			// therefore it will make an authorization call
+			// in this authorization call, it will contain the identity it saw
+			// this identity should contain the UID we are looking for.
+			// once written, we could copy/paste this test back to master and see it fail, to prove we did the right thing.
+
+			// round tripper wrapper we can use to manipulate the request
+			// this is why we made the wrapper at the bottom
+			return rtFunc(func(req *http.Request) (*http.Response, error) {
+				// what we got?
+				// NOTE: to run this:
+				//   make test-integration WHAT=./test/integration/examples KUBE_TEST_ARGS="-v -run Aggregated"
+				//   ulimit -n 60000  # open files <-- ned more file descriptors cuz the test complains
+				t.Log("🐙 🐙 🐙 🐙 🐙 WHAT WE GOT??????? BEN", req.Header)
+				return rt.RoundTrip(req)
+			})
+		}
 		wardleCmd := sampleserver.NewCommandStartWardleServer(o, stopCh)
+		// for cobra, pretend running a binary
 		wardleCmd.SetArgs([]string{
+			// WHY DO WE HAVE 3 KUBECONFIGS~
+			// might be pointed them to 3 different servers... to do the various jobs.
+			// (prob not a common thing)
 			"--authentication-kubeconfig", wardleToKASKubeConfigFile,
 			"--authorization-kubeconfig", wardleToKASKubeConfigFile,
 			"--etcd-servers", framework.GetEtcdURL(),
 			"--cert-dir", wardleCertDir,
 			"--kubeconfig", wardleToKASKubeConfigFile,
 		})
+		// execute cobra command (vs bash calling executable)
 		if err := wardleCmd.Execute(); err != nil {
 			t.Error(err)
 		}
@@ -453,3 +481,11 @@ MnVCuBwfwDXCAiEAw/1TA+CjPq9JC5ek1ifR0FybTURjeQqYkKpve1dveps=
 
 `)
 )
+
+var _ http.RoundTripper = rtFunc(nil)
+
+type rtFunc func(*http.Request) (*http.Response, error)
+
+func (f rtFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
