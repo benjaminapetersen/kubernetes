@@ -30,6 +30,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	authenticationv1 "k8s.io/api/authentication/v1"
+	corev1 "k8s.io/api/core/v1"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -45,12 +47,14 @@ import (
 	"k8s.io/client-go/util/cert"
 	apiregistrationv1 "k8s.io/kube-aggregator/pkg/apis/apiregistration/v1"
 	aggregatorclient "k8s.io/kube-aggregator/pkg/client/clientset_generated/clientset"
-	kastesting "k8s.io/kubernetes/cmd/kube-apiserver/app/testing"
-	"k8s.io/kubernetes/test/integration/framework"
 	wardlev1alpha1 "k8s.io/sample-apiserver/pkg/apis/wardle/v1alpha1"
 	wardlev1beta1 "k8s.io/sample-apiserver/pkg/apis/wardle/v1beta1"
 	sampleserver "k8s.io/sample-apiserver/pkg/cmd/server"
+	wardlev1alpha1client "k8s.io/sample-apiserver/pkg/generated/clientset/versioned/typed/wardle/v1alpha1"
 	netutils "k8s.io/utils/net"
+
+	kastesting "k8s.io/kubernetes/cmd/kube-apiserver/app/testing"
+	"k8s.io/kubernetes/test/integration/framework"
 )
 
 func TestAggregatedAPIServer(t *testing.T) {
@@ -60,6 +64,9 @@ func TestAggregatedAPIServer(t *testing.T) {
 	stopCh := make(chan struct{})
 	defer close(stopCh)
 
+	// BEN(NOTES):
+	// StartTestServerOrDie will call StartTestServer, which will
+	// start an etcd server and a kube-apiserver.
 	testServer := kastesting.StartTestServerOrDie(t, &kastesting.TestServerInstanceOptions{EnableCertAuth: true}, nil, framework.SharedEtcd())
 	defer testServer.TearDownFn()
 	kubeClientConfig := rest.CopyConfig(testServer.ClientConfig)
@@ -68,6 +75,33 @@ func TestAggregatedAPIServer(t *testing.T) {
 	kubeClientConfig.AcceptContentTypes = ""
 	kubeClient := client.NewForConfigOrDie(kubeClientConfig)
 	aggregatorClient := aggregatorclient.NewForConfigOrDie(kubeClientConfig)
+
+	saName := "octopus-are-better-than-pandas"
+	// we are happy to write tests here really.
+	_, err := kubeClient.CoreV1().ServiceAccounts(metav1.NamespaceSystem).Create(context.TODO(), &corev1.ServiceAccount{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: saName,
+		},
+	}, metav1.CreateOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	saToken, err := kubeClient.CoreV1().ServiceAccounts(metav1.NamespaceSystem).CreateToken(context.TODO(), saName, &authenticationv1.TokenRequest{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "virtual-obj-no-name-needed",
+		},
+		// just taking the defaults
+		Spec: authenticationv1.TokenRequestSpec{},
+	}, metav1.CreateOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	saTokenKubeClientConfig := rest.AnonymousClientConfig(testServer.ClientConfig)
+	saTokenKubeClientConfig.BearerToken = saToken.Status.Token
+
+	wardleSATokenClient := wardlev1alpha1client.NewForConfigOrDie(saTokenKubeClientConfig)
 
 	// start the wardle server to prove we can aggregate it
 	wardleToKASKubeConfigFile := writeKubeConfigForWardleServerToKASConnection(t, rest.CopyConfig(kubeClientConfig))
@@ -83,6 +117,7 @@ func TestAggregatedAPIServer(t *testing.T) {
 		o.RecommendedOptions.SecureServing.Listener = listener
 		o.RecommendedOptions.SecureServing.BindAddress = netutils.ParseIPSloppy("127.0.0.1")
 		o.RecommendedOptions.Authorization.CustomRoundTripperFn = func(rt http.RoundTripper) http.RoundTripper {
+			// NOTES(BEN):
 			// somewhere in this thing, there is an API Service serving an API.
 			// the wardle API.
 			// within this test, we make a service account token
@@ -233,9 +268,18 @@ func TestAggregatedAPIServer(t *testing.T) {
 	if numMatches != 4 {
 		t.Fatal("names don't match")
 	}
-
+	// TODO: what does the wardle server actuall serve, then?????
+	_, err = wardleSATokenClient.Fischers().List(context.TODO(), metav1.ListOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// _, err = wardleSATokenClient.Flunders(metav1.NamespaceSystem).List(context.TODO(), metav1.ListOptions{})
+	// if err != nil {
+	// 	t.Fatal(err)
+	// }
 }
 
+// NOTE(BEN): what does this do???
 func waitForWardleRunning(t *testing.T, wardleToKASKubeConfig *rest.Config, wardleCertDir string, wardlePort int) (*rest.Config, error) {
 	directWardleClientConfig := rest.AnonymousClientConfig(rest.CopyConfig(wardleToKASKubeConfig))
 	directWardleClientConfig.CAFile = path.Join(wardleCertDir, "apiserver.crt")
