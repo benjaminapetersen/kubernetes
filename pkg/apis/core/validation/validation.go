@@ -43,6 +43,8 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	schedulinghelper "k8s.io/component-helpers/scheduling/corev1"
+	netutils "k8s.io/utils/net"
+
 	apiservice "k8s.io/kubernetes/pkg/api/service"
 	"k8s.io/kubernetes/pkg/apis/core"
 	api "k8s.io/kubernetes/pkg/apis/core"
@@ -54,7 +56,6 @@ import (
 	"k8s.io/kubernetes/pkg/features"
 	"k8s.io/kubernetes/pkg/fieldpath"
 	"k8s.io/kubernetes/pkg/security/apparmor"
-	netutils "k8s.io/utils/net"
 )
 
 const isNegativeErrorMsg string = apimachineryvalidation.IsNegativeErrorMsg
@@ -1018,7 +1019,7 @@ func validateGlusterfsPersistentVolumeSource(glusterfs *core.GlusterfsPersistent
 func validateFlockerVolumeSource(flocker *core.FlockerVolumeSource, fldPath *field.Path) field.ErrorList {
 	allErrs := field.ErrorList{}
 	if len(flocker.DatasetName) == 0 && len(flocker.DatasetUUID) == 0 {
-		//TODO: consider adding a RequiredOneOf() error for this and similar cases
+		// TODO: consider adding a RequiredOneOf() error for this and similar cases
 		allErrs = append(allErrs, field.Required(fldPath, "one of datasetName and datasetUUID is required"))
 	}
 	if len(flocker.DatasetName) != 0 && len(flocker.DatasetUUID) != 0 {
@@ -3503,7 +3504,7 @@ func validatePodIPs(pod *core.Pod) field.ErrorList {
 		}
 
 		// There should be no duplicates in list of Pod.PodIPs
-		seen := sets.String{} //:= make(map[string]int)
+		seen := sets.String{} // := make(map[string]int)
 		for i, podIP := range pod.Status.PodIPs {
 			if seen.Has(podIP.IP) {
 				allErrs = append(allErrs, field.Duplicate(podIPsField.Index(i), podIP))
@@ -3938,7 +3939,7 @@ func validatePodAntiAffinity(podAntiAffinity *core.PodAntiAffinity, fldPath *fie
 	// if podAntiAffinity.RequiredDuringSchedulingRequiredDuringExecution != nil {
 	//	allErrs = append(allErrs, validatePodAffinityTerms(podAntiAffinity.RequiredDuringSchedulingRequiredDuringExecution, false,
 	//		fldPath.Child("requiredDuringSchedulingRequiredDuringExecution"))...)
-	//}
+	// }
 	if podAntiAffinity.RequiredDuringSchedulingIgnoredDuringExecution != nil {
 		allErrs = append(allErrs, validatePodAffinityTerms(podAntiAffinity.RequiredDuringSchedulingIgnoredDuringExecution,
 			fldPath.Child("requiredDuringSchedulingIgnoredDuringExecution"))...)
@@ -3973,7 +3974,7 @@ func validatePodAffinity(podAffinity *core.PodAffinity, fldPath *field.Path) fie
 	// if podAffinity.RequiredDuringSchedulingRequiredDuringExecution != nil {
 	//	allErrs = append(allErrs, validatePodAffinityTerms(podAffinity.RequiredDuringSchedulingRequiredDuringExecution, false,
 	//		fldPath.Child("requiredDuringSchedulingRequiredDuringExecution"))...)
-	//}
+	// }
 	if podAffinity.RequiredDuringSchedulingIgnoredDuringExecution != nil {
 		allErrs = append(allErrs, validatePodAffinityTerms(podAffinity.RequiredDuringSchedulingIgnoredDuringExecution,
 			fldPath.Child("requiredDuringSchedulingIgnoredDuringExecution"))...)
@@ -4185,7 +4186,7 @@ func ValidatePodSecurityContext(securityContext *core.PodSecurityContext, spec *
 func ValidateContainerUpdates(newContainers, oldContainers []core.Container, fldPath *field.Path) (allErrs field.ErrorList, stop bool) {
 	allErrs = field.ErrorList{}
 	if len(newContainers) != len(oldContainers) {
-		//TODO: Pinpoint the specific container that causes the invalid error after we have strategic merge diff
+		// TODO: Pinpoint the specific container that causes the invalid error after we have strategic merge diff
 		allErrs = append(allErrs, field.Forbidden(fldPath, "pod updates may not add or remove containers"))
 		return allErrs, true
 	}
@@ -4371,7 +4372,7 @@ func ValidatePodUpdate(newPod, oldPod *core.Pod, opts PodValidationOptions) fiel
 
 	if !apiequality.Semantic.DeepEqual(mungedPodSpec, oldPod.Spec) {
 		// This diff isn't perfect, but it's a helluva lot better an "I'm not going to tell you what the difference is".
-		//TODO: Pinpoint the specific field that causes the invalid error after we have strategic merge diff
+		// TODO: Pinpoint the specific field that causes the invalid error after we have strategic merge diff
 		specDiff := diff.ObjectDiff(mungedPodSpec, oldPod.Spec)
 		allErrs = append(allErrs, field.Forbidden(specPath, fmt.Sprintf("pod updates may not change fields other than `spec.containers[*].image`, `spec.initContainers[*].image`, `spec.activeDeadlineSeconds`, `spec.tolerations` (only additions to existing tolerations) or `spec.terminationGracePeriodSeconds` (allow it to be set to 1 if it was previously negative)\n%v", specDiff)))
 	}
@@ -6051,7 +6052,7 @@ func validateEndpointSubsets(subsets []core.EndpointSubset, fldPath *field.Path)
 
 		// EndpointSubsets must include endpoint address. For headless service, we allow its endpoints not to have ports.
 		if len(ss.Addresses) == 0 && len(ss.NotReadyAddresses) == 0 {
-			//TODO: consider adding a RequiredOneOf() error for this and similar cases
+			// TODO: consider adding a RequiredOneOf() error for this and similar cases
 			allErrs = append(allErrs, field.Required(idxPath, "must specify `addresses` or `notReadyAddresses`"))
 		}
 		for addr := range ss.Addresses {
@@ -6105,7 +6106,7 @@ func ValidateNonSpecialIP(ipAddress string, fldPath *field.Path) field.ErrorList
 		allErrs = append(allErrs, field.Invalid(fldPath, ipAddress, fmt.Sprintf("may not be unspecified (%v)", ipAddress)))
 	}
 	if ip.IsLoopback() {
-		allErrs = append(allErrs, field.Invalid(fldPath, ipAddress, "may not be in the loopback range (127.0.0.0/8, ::1/128)"))
+		// allErrs = append(allErrs, field.Invalid(fldPath, ipAddress, "may not be in the loopback range (127.0.0.0/8, ::1/128)"))
 	}
 	if ip.IsLinkLocalUnicast() {
 		allErrs = append(allErrs, field.Invalid(fldPath, ipAddress, "may not be in the link-local range (169.254.0.0/16, fe80::/10)"))
@@ -6142,7 +6143,7 @@ func validateEndpointPort(port *core.EndpointPort, requireName bool, fldPath *fi
 // ValidateSecurityContext ensures the security context contains valid settings
 func ValidateSecurityContext(sc *core.SecurityContext, fldPath *field.Path) field.ErrorList {
 	allErrs := field.ErrorList{}
-	//this should only be true for testing since SecurityContext is defaulted by the core
+	// this should only be true for testing since SecurityContext is defaulted by the core
 	if sc == nil {
 		return allErrs
 	}
@@ -6614,7 +6615,7 @@ func ValidateServiceClusterIPsRelatedFields(service *core.Service) field.ErrorLi
 	}
 
 	// IPFamilyPolicy stand alone validation
-	//note: nil is ok, defaulted in alloc check registry/core/service/*
+	// note: nil is ok, defaulted in alloc check registry/core/service/*
 	if service.Spec.IPFamilyPolicy != nil {
 		// must have a supported value
 		if !supportedServiceIPFamilyPolicy.Has(string(*(service.Spec.IPFamilyPolicy))) {

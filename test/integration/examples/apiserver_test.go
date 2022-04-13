@@ -17,9 +17,11 @@ limitations under the License.
 package apiserver
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"net"
 	"net/http"
@@ -32,11 +34,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	authenticationv1 "k8s.io/api/authentication/v1"
 	corev1 "k8s.io/api/core/v1"
-
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/apiserver/pkg/endpoints/request"
 	"k8s.io/apiserver/pkg/server/dynamiccertificates"
 	genericapiserveroptions "k8s.io/apiserver/pkg/server/options"
 	"k8s.io/client-go/discovery"
@@ -67,7 +70,10 @@ func TestAggregatedAPIServer(t *testing.T) {
 	// BEN(NOTES):
 	// StartTestServerOrDie will call StartTestServer, which will
 	// start an etcd server and a kube-apiserver.
-	testServer := kastesting.StartTestServerOrDie(t, &kastesting.TestServerInstanceOptions{EnableCertAuth: true}, nil, framework.SharedEtcd())
+	// This is starting up the initial API server
+	testServer := kastesting.StartTestServerOrDie(t, &kastesting.TestServerInstanceOptions{EnableCertAuth: true}, []string{
+		"--enable-aggregator-routing",
+	}, framework.SharedEtcd())
 	defer testServer.TearDownFn()
 	kubeClientConfig := rest.CopyConfig(testServer.ClientConfig)
 	// force json because everything speaks it
@@ -76,9 +82,38 @@ func TestAggregatedAPIServer(t *testing.T) {
 	kubeClient := client.NewForConfigOrDie(kubeClientConfig)
 	aggregatorClient := aggregatorclient.NewForConfigOrDie(kubeClientConfig)
 
+	// Wardle needs a namespace
+	_, err := kubeClient.CoreV1().Namespaces().Create(context.TODO(), &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "kube-wardle",
+		},
+	}, metav1.CreateOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// wardle needs a service
+	_, err = kubeClient.CoreV1().Services("kube-wardle").Create(context.TODO(), &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "api",
+		},
+		Spec: corev1.ServiceSpec{
+			Ports: []corev1.ServicePort{
+				{
+					// Name: "api-default-port", naming this screws up something...
+					Port: 443,
+				},
+			},
+			Type: corev1.ServiceTypeClusterIP,
+		},
+	}, metav1.CreateOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// wardle needs a service account with a silly name so we can make a service account token
 	saName := "octopus-are-better-than-pandas"
 	// we are happy to write tests here really.
-	_, err := kubeClient.CoreV1().ServiceAccounts(metav1.NamespaceSystem).Create(context.TODO(), &corev1.ServiceAccount{
+	_, err = kubeClient.CoreV1().ServiceAccounts(metav1.NamespaceSystem).Create(context.TODO(), &corev1.ServiceAccount{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: saName,
 		},
@@ -87,6 +122,7 @@ func TestAggregatedAPIServer(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// wardle needs a service account token
 	saToken, err := kubeClient.CoreV1().ServiceAccounts(metav1.NamespaceSystem).CreateToken(context.TODO(), saName, &authenticationv1.TokenRequest{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "virtual-obj-no-name-needed",
@@ -98,9 +134,15 @@ func TestAggregatedAPIServer(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	t.Log("🐙 🐙  WHAT IS THE VALUE OF THE TOKEN")
+	t.Log(saToken.Status.Token)
+
 	saTokenKubeClientConfig := rest.AnonymousClientConfig(testServer.ClientConfig)
 	saTokenKubeClientConfig.BearerToken = saToken.Status.Token
+	saTokenKubeClientConfig.ContentType = runtime.ContentTypeJSON        // the wardle API server does not support protobuf
+	saTokenKubeClientConfig.AcceptContentTypes = runtime.ContentTypeJSON // the wardle API server does not support protobuf
 
+	// client using the wardle token
 	wardleSATokenClient := wardlev1alpha1client.NewForConfigOrDie(saTokenKubeClientConfig)
 
 	// start the wardle server to prove we can aggregate it
@@ -108,14 +150,64 @@ func TestAggregatedAPIServer(t *testing.T) {
 	defer os.Remove(wardleToKASKubeConfigFile)
 	wardleCertDir, _ := ioutil.TempDir("", "test-integration-wardle-server")
 	defer os.RemoveAll(wardleCertDir)
-	listener, wardlePort, err := genericapiserveroptions.CreateListener("tcp", "127.0.0.1:0", net.ListenConfig{})
+	// :0 means "find me a free port"
+	listener, wardlePort, err := genericapiserveroptions.CreateListener("tcp", "0.0.0.0:0", net.ListenConfig{})
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	// fmt.Println("THE LISTENER THINGY::::::: >>>>>") // nothing gets printed when the test errors
+	// t.Fatal(listener.Addr().String())
+	//
+	// LATEST ERROR:
+	// E0411 10:58:23.203620   94841 controller.go:116] loading OpenAPI spec for "v1alpha1.wardle.example.com" failed with: failed to retrieve openAPI spec, http error: ResponseCode: 503, Body: error trying to reach service: x509: certificate is valid for localhost, not api.kube-wardle.svc
+	// LOOKS LIKE WE ARE GETTING CLOSE, JUST CERTS NOW!
+
+	// endpoint for wardle api server
+	_, err = kubeClient.CoreV1().Endpoints("kube-wardle").Create(context.TODO(), &corev1.Endpoints{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "api",
+		},
+		Subsets: []corev1.EndpointSubset{
+			{
+				Addresses: []corev1.EndpointAddress{
+					{
+						IP: "127.0.0.1",
+					},
+				},
+				Ports: []corev1.EndpointPort{
+					{
+						Port:     int32(wardlePort), // has to be the wardle port!
+						Protocol: corev1.ProtocolTCP,
+					},
+				},
+			},
+		},
+	}, metav1.CreateOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	go func() {
 		o := sampleserver.NewWardleServerOptions(os.Stdout, os.Stderr)
+		// ensure this is a SAN on the generated cert
+		o.AlternateDNS = []string{
+			// fully qualified identifier from our service, servicename.namespace.svc.cluster.local...
+			"api.kube-wardle.svc",
+		}
 		o.RecommendedOptions.SecureServing.Listener = listener
+		// ParseIPSloppy is then taking a string and giving back an IP as go struct
+		// this is just type conversion
 		o.RecommendedOptions.SecureServing.BindAddress = netutils.ParseIPSloppy("127.0.0.1")
+		// BEN NOTES
+		// in the authorization webhook.
+		// the service account made a request
+		// and we are figuring out if it is enabled to do the request
+		// by asking the API server
+		// in this request is a body
+		// in the body is a subject access review
+		// but we don't want to parse that out
+		// so instead....
 		o.RecommendedOptions.Authorization.CustomRoundTripperFn = func(rt http.RoundTripper) http.RoundTripper {
 			// NOTES(BEN):
 			// somewhere in this thing, there is an API Service serving an API.
@@ -137,9 +229,26 @@ func TestAggregatedAPIServer(t *testing.T) {
 				//   make test-integration WHAT=./test/integration/examples KUBE_TEST_ARGS="-v -run Aggregated"
 				//   ulimit -n 60000  # open files <-- ned more file descriptors cuz the test complains
 				t.Log("🐙 🐙 🐙 🐙 🐙 WHAT WE GOT??????? BEN", req.Header)
+				t.Log(request.UserFrom(req.Context()))
+
+				// dance to log stuff...
+				var b bytes.Buffer
+				a, err := io.ReadAll(req.Body)
+				if err != nil {
+					return nil, err
+				}
+				_ = req.Body.Close() // if you don't do this it is bad :(
+				_, _ = b.Write(a)
+				req.Body = io.NopCloser(&b)
+				// yay
+				t.Log("THE BODY >>>>")
+				t.Log(string(a))
+
 				return rt.RoundTrip(req)
 			})
 		}
+
+		// cmd to start up wardle
 		wardleCmd := sampleserver.NewCommandStartWardleServer(o, stopCh)
 		// for cobra, pretend running a binary
 		wardleCmd.SetArgs([]string{
@@ -175,6 +284,7 @@ func TestAggregatedAPIServer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// This is where we are establishing trust between Wardle & the API Server byassing up the CA BUnde
 	_, err = aggregatorClient.ApiregistrationV1().APIServices().Create(context.TODO(), &apiregistrationv1.APIService{
 		ObjectMeta: metav1.ObjectMeta{Name: "v1alpha1.wardle.example.com"},
 		Spec: apiregistrationv1.APIServiceSpec{
@@ -182,8 +292,10 @@ func TestAggregatedAPIServer(t *testing.T) {
 				Namespace: "kube-wardle",
 				Name:      "api",
 			},
-			Group:                "wardle.example.com",
-			Version:              "v1alpha1",
+			Group:   "wardle.example.com",
+			Version: "v1alpha1",
+			// we need to pass the WardleCA to the APIServer so that the API Server
+			// knows to trust Wardle as a new API.
 			CABundle:             wardleCA,
 			GroupPriorityMinimum: 200,
 			VersionPriority:      200,
@@ -196,13 +308,37 @@ func TestAggregatedAPIServer(t *testing.T) {
 	// wait for the unavailable API service to be processed with updated status
 	err = wait.Poll(100*time.Millisecond, 5*time.Second, func() (done bool, err error) {
 		_, _, err = kubeClient.Discovery().ServerGroupsAndResources()
-		hasExpectedError := checkWardleUnavailableDiscoveryError(t, err)
-		return hasExpectedError, nil
+		// TODO(BEN): changed this because we now expect it to work................
+		// But we should really check that it is AVAILABLE
+		// hasExpectedError := checkWardleUnavailableDiscoveryError(t, err)
+		// return hasExpectedError, nil
+		return err == nil, nil
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	// TODO : STEPS --> In another PR??
+	// - Enable Aggregator Routing - DONE
+	// - Create Namespace for WardleServer - DONE
+	// - Create The Service - DONE
+	// - Create The Endpoint -
+	// - We have the bits needed for service and endpoint when we bring up wardle, sot his should be doable...
+	// - THEN maybe we can get hte API service into a state where it can function w/o service unavailable
+	//
 	// TODO figure out how to turn on enough of services and dns to run more
+	// Integration tests run API servers & controllers you want (manually)
+	// But Integration tets do NOT have kubelets.
+	// You need a kubelet to get Kube DNS in order to get services.
+	// Adding kubelets moves us into e2e test land, not integration test.
+	// Kubeletse run KubeDNS
+	// Thats how routing works across pods -> KubeDNS resolves services to an IP address
+	// APIServer may run on kubelets
+	// But not always, often API Servers run elsewhere
+	// Kubelet -> KubeDNS -> DNS Lookup -> DNS Resolution
+	// But we have to get around this...
+	//
+	// TODO look up services and endpoints for a refresh
 
 	// Now we want to verify that the client CA bundles properly reflect the values for the cluster-authentication
 	firstKubeCANames, err := cert.GetClientCANamesForURL(kubeClientConfig.Host)
@@ -268,11 +404,24 @@ func TestAggregatedAPIServer(t *testing.T) {
 	if numMatches != 4 {
 		t.Fatal("names don't match")
 	}
+
+	// TODO: remove this...... once we are done debugging
+	time.Sleep(30 * time.Second)
+
+	foo, _ := aggregatorClient.ApiregistrationV1().APIServices().Get(context.TODO(), "v1alpha1.wardle.example.com", metav1.GetOptions{})
+	fmt.Println("THE WARDLE API SERVICE STATUS:")
+	t.Log(foo.Status)
+
 	// TODO: what does the wardle server actuall serve, then?????
-	_, err = wardleSATokenClient.Fischers().List(context.TODO(), metav1.ListOptions{})
+	fischersList, err := wardleSATokenClient.Fischers().List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	t.Log("FISCHERS LIST OF STUFFFFFFF:::::")
+	t.Log(fischersList.Items)
+	t.Log(fischersList.ResourceVersion)
+
 	// _, err = wardleSATokenClient.Flunders(metav1.NamespaceSystem).List(context.TODO(), metav1.ListOptions{})
 	// if err != nil {
 	// 	t.Fatal(err)
