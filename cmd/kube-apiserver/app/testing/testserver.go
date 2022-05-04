@@ -18,6 +18,7 @@ package testing
 
 import (
 	"context"
+	"crypto/x509"
 	"fmt"
 	"io/ioutil"
 	"net"
@@ -47,6 +48,7 @@ import (
 
 	"k8s.io/kubernetes/cmd/kube-apiserver/app"
 	"k8s.io/kubernetes/cmd/kube-apiserver/app/options"
+	"k8s.io/kubernetes/cmd/kubeadm/app/util/pkiutil"
 	testutil "k8s.io/kubernetes/test/utils"
 )
 
@@ -156,15 +158,47 @@ func StartTestServer(t Logger, instanceOptions *TestServerInstanceOptions, custo
 		if err != nil {
 			return result, err
 		}
-		proxySigningCert, err := cert.NewSelfSignedCACert(cert.Config{CommonName: "front-proxy-ca"}, proxySigningKey)
+		proxySigningCert, err := cert.NewSelfSignedCACert(cert.Config{CommonName: "front-proxy-ca"}, proxySigningKey) // create CA using private key
 		if err != nil {
 			return result, err
 		}
-		proxyCACertFile := path.Join(s.SecureServing.ServerCert.CertDirectory, "proxy-ca.crt")
+		proxyCACertFile := path.Join(s.SecureServing.ServerCert.CertDirectory, "proxy-ca.crt") // write CA to disk
 		if err := ioutil.WriteFile(proxyCACertFile, testutil.EncodeCertPEM(proxySigningCert), 0644); err != nil {
 			return result, err
 		}
-		s.Authentication.RequestHeader.ClientCAFile = proxyCACertFile
+		s.Authentication.RequestHeader.ClientCAFile = proxyCACertFile // consume file from disk, cli flags take files as input
+		// TODO: this isn't working....
+		s.Authentication.RequestHeader.AllowedNames = []string{"ash-ketchum", "misty", "brock"} // we are going to be specific about what identity is valid
+
+		// DO STUFF HERE...
+		// the part that authenticates teh API server to the backend aggregated API server isn't setup
+		// the API server is not identifying itself
+		// so the Wardle server is ignoring it, it doesn't trust the API server, no proper client cert on this request
+
+		// first take proxySigningCert and make a client certificate for the APIServer (common name has to match one of our defined names above)
+		tenThousandHoursLater := time.Now().Add(10_000 * time.Hour)
+		clientCrtOfAPIServer, signer, err := pkiutil.NewCertAndKey(proxySigningCert, proxySigningKey, &pkiutil.CertConfig{
+			Config: cert.Config{
+				// CommonName: "misty",
+				CommonName: "x-remote-extra-", // hackery... what is going on here????
+				Usages: []x509.ExtKeyUsage{
+					x509.ExtKeyUsageClientAuth,
+				},
+			},
+			NotAfter:           &tenThousandHoursLater,
+			PublicKeyAlgorithm: x509.ECDSA,
+		})
+		if err != nil {
+			return result, err
+		}
+
+		if err := pkiutil.WriteCertAndKey(s.SecureServing.ServerCert.CertDirectory, "misty-crt", clientCrtOfAPIServer, signer); err != nil {
+			return result, err
+		}
+
+		s.ProxyClientKeyFile = path.Join(s.SecureServing.ServerCert.CertDirectory, "misty-crt.key")  // it made this :(
+		s.ProxyClientCertFile = path.Join(s.SecureServing.ServerCert.CertDirectory, "misty-crt.crt") // did it make this?
+
 		clientSigningKey, err := testutil.NewPrivateKey()
 		if err != nil {
 			return result, err
