@@ -233,7 +233,7 @@ func (a *Verifier) verifySubject(subject pkix.Name) error {
 			return nil
 		}
 	}
-	return fmt.Errorf("x509: subject with cn=%s is not in the allowed list", subject.CommonName)
+	return fmt.Errorf("x509: subject with cn=%s is not in the allowed list - %v", subject.CommonName, a.allowedCommonNames.Value()) // TODO: put this back!
 }
 
 // DefaultVerifyOptions returns VerifyOptions that use the system root certificates, current time,

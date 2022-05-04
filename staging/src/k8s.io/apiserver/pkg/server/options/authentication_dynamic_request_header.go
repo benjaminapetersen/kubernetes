@@ -49,17 +49,30 @@ func newDynamicRequestHeaderController(client kubernetes.Interface) (*DynamicReq
 		return nil, fmt.Errorf("unable to create DynamicCAFromConfigMap controller: %v", err)
 	}
 
+	// TODO: remove this
+	// requestHeaderAuthRequestController := headerrequest.NewRequestHeaderAuthRequestController(
+	// 	authenticationConfigMapName,
+	// 	authenticationConfigMapNamespace,
+	// 	client,
+	// 	"requestheader-username-headers",
+	// 	"requestheader-uid-headers", // wrong stuff here ---- FIX THIS!!!
+	// 	"requestheader-allowed-uid",
+	// 	"requestheader-group-headers",
+	// 	"requestheader-extra-headers-prefix",
+	// 	"requestheader-allowed-names",
+	// )
+
 	requestHeaderAuthRequestController := headerrequest.NewRequestHeaderAuthRequestController(
 		authenticationConfigMapName,
 		authenticationConfigMapNamespace,
 		client,
 		"requestheader-username-headers",
 		"requestheader-uid-headers",
-		"requestheader-allowed-uid",
 		"requestheader-group-headers",
 		"requestheader-extra-headers-prefix",
 		"requestheader-allowed-names",
 	)
+
 	return &DynamicRequestHeaderController{
 		ConfigMapCAController:              requestHeaderCAController,
 		RequestHeaderAuthRequestController: requestHeaderAuthRequestController,

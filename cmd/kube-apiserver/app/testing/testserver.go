@@ -179,8 +179,8 @@ func StartTestServer(t Logger, instanceOptions *TestServerInstanceOptions, custo
 		tenThousandHoursLater := time.Now().Add(10_000 * time.Hour)
 		clientCrtOfAPIServer, signer, err := pkiutil.NewCertAndKey(proxySigningCert, proxySigningKey, &pkiutil.CertConfig{
 			Config: cert.Config{
-				// CommonName: "misty",
-				CommonName: "x-remote-extra-", // hackery... what is going on here????
+				CommonName: "misty",
+				// CommonName: "x-remote-extra-", // hackery... what is going on here???? -> serach the project for this again: x-remote-extra
 				Usages: []x509.ExtKeyUsage{
 					x509.ExtKeyUsageClientAuth,
 				},
