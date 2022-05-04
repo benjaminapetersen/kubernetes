@@ -31,6 +31,7 @@ import (
 	"go.etcd.io/etcd/client/pkg/v3/transport"
 	clientv3 "go.etcd.io/etcd/client/v3"
 	"google.golang.org/grpc"
+	options2 "k8s.io/apiserver/pkg/server/options"
 
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -43,6 +44,7 @@ import (
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/util/cert"
 	"k8s.io/kube-aggregator/pkg/apiserver"
+
 	"k8s.io/kubernetes/cmd/kube-apiserver/app"
 	"k8s.io/kubernetes/cmd/kube-apiserver/app/options"
 	testutil "k8s.io/kubernetes/test/utils"
@@ -146,6 +148,9 @@ func StartTestServer(t Logger, instanceOptions *TestServerInstanceOptions, custo
 	s.SecureServing.ServerCert.CertDirectory = result.TmpDir
 
 	if instanceOptions.EnableCertAuth {
+		reqHeaders := options2.NewDelegatingAuthenticationOptions()
+		s.Authentication.RequestHeader = &reqHeaders.RequestHeader
+
 		// create certificates for aggregation and client-cert auth
 		proxySigningKey, err := testutil.NewPrivateKey()
 		if err != nil {
@@ -173,6 +178,9 @@ func StartTestServer(t Logger, instanceOptions *TestServerInstanceOptions, custo
 			return result, err
 		}
 		s.Authentication.ClientCert.ClientCA = clientCACertFile
+
+		t.Logf("STUFF FROM testserver.go for Authentication --------------------- >>>>>>>>>>>>>>>>")
+		t.Logf("%#v\n", s.Authentication.RequestHeader)
 	}
 
 	s.SecureServing.ExternalAddress = s.SecureServing.Listener.Addr().(*net.TCPAddr).IP // use listener addr although it is a loopback device

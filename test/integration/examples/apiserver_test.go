@@ -71,8 +71,14 @@ func TestAggregatedAPIServer(t *testing.T) {
 	// StartTestServerOrDie will call StartTestServer, which will
 	// start an etcd server and a kube-apiserver.
 	// This is starting up the initial API server
+	//
+	// TEST SERVER IS INCORRECT:
+	// 	testserver.go:177: STUFF FROM testserver.go for Authentication --------------------- >>>>>>>>>>>>>>>>
+	//     testserver.go:178: &options.RequestHeaderAuthenticationOptions{ClientCAFile:"/var/folders/c7/cw70qc6d6sx46p5r0n_lbpwr0000gn/T/kubernetes-kube-apiserver249281036/proxy-ca.crt", UsernameHeaders:[]string(nil), UIDHeaders:[]string(nil), GroupHeaders:[]string(nil), ExtraHeaderPrefixes:[]string(nil), AllowedNames:[]string(nil)}
+	// --- FAIL: TestAggregatedAPIServer (0.30s)
+	// TODO: change how we are starting it up???/
 	testServer := kastesting.StartTestServerOrDie(t, &kastesting.TestServerInstanceOptions{EnableCertAuth: true}, []string{
-		"--enable-aggregator-routing",
+		"--enable-aggregator-routing", // TODO: we will remove this later.... we can't use the endpoint based approach.
 	}, framework.SharedEtcd())
 	defer testServer.TearDownFn()
 	kubeClientConfig := rest.CopyConfig(testServer.ClientConfig)
@@ -190,6 +196,9 @@ func TestAggregatedAPIServer(t *testing.T) {
 
 	go func() {
 		o := sampleserver.NewWardleServerOptions(os.Stdout, os.Stderr)
+
+		// o.RecommendedOptions.Authentication.RemoteKubeConfigFile = "" // NOTE(BEN): do we really want to reset this or not????
+
 		// ensure this is a SAN on the generated cert
 		o.AlternateDNS = []string{
 			// fully qualified identifier from our service, servicename.namespace.svc.cluster.local...
@@ -243,6 +252,9 @@ func TestAggregatedAPIServer(t *testing.T) {
 				// yay
 				t.Log("THE BODY >>>>")
 				t.Log(string(a))
+				// Hmm..dont care about hte body then
+				// why doesn't the authorization webhook proper delegated auth?
+				// authentication doesn't seem to be working correctly.... or?
 
 				return rt.RoundTrip(req)
 			})
