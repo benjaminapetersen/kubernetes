@@ -26,6 +26,8 @@ import (
 	"sync"
 	"time"
 
+	"k8s.io/klog/v2"
+
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -44,7 +46,6 @@ import (
 	"k8s.io/client-go/transport"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/component-base/metrics/legacyregistry"
-	"k8s.io/klog/v2"
 	apiregistrationv1 "k8s.io/kube-aggregator/pkg/apis/apiregistration/v1"
 	apiregistrationv1apihelper "k8s.io/kube-aggregator/pkg/apis/apiregistration/v1/helper"
 	apiregistrationclient "k8s.io/kube-aggregator/pkg/client/clientset_generated/clientset/typed/apiregistration/v1"
@@ -385,7 +386,16 @@ func (c *AvailableConditionController) sync(key string) error {
 					}
 
 					// setting the system-masters identity ensures that we will always have access rights
-					transport.SetAuthProxyHeaders(newReq, "system:kube-aggregator", []string{"system:masters"}, nil)
+					// so system:kube-aggregator is an identity that can only get services and endpoinns, this isn't a real identity, extra not real....
+					// but the groupsystem:masters is a magic group that you do anything (also, no groups are real,everything is vitual in kube, arbitrary strings...)
+					// username is always required or the api will reject a request
+					// we can only arbirtrarily set headers this way since mTLS allows the API server aggregated API server to "know" each other
+					// mTLS is set by a configmap, not just the APIService registration func where we pass a cert
+					// the client in this is the API server, the server is whatever aggregated API server
+					// mTLS=server validates the client
+					//  (in normal TLS the client validates the server, which ALWAYS should happen)
+					//  (mTLS happens in addition to normal TLS)
+					transport.SetAuthProxyHeaders(newReq, "system:kube-aggregator", "", []string{"system:masters"}, nil)
 					resp, err := discoveryClient.Do(newReq)
 					if resp != nil {
 						resp.Body.Close()

@@ -24,6 +24,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"k8s.io/klog/v2"
+
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/httpstream"
 	utilnet "k8s.io/apimachinery/pkg/util/net"
@@ -39,7 +41,6 @@ import (
 	"k8s.io/apiserver/pkg/util/x509metrics"
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/transport"
-	"k8s.io/klog/v2"
 	apiregistrationv1api "k8s.io/kube-aggregator/pkg/apis/apiregistration/v1"
 	apiregistrationv1apihelper "k8s.io/kube-aggregator/pkg/apis/apiregistration/v1/helper"
 )
@@ -164,13 +165,13 @@ func (r *proxyHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	proxyRoundTripper := handlingInfo.proxyRoundTripper
 	upgrade := httpstream.IsUpgradeRequest(req)
 
-	proxyRoundTripper = transport.NewAuthProxyRoundTripper(user.GetName(), user.GetGroups(), user.GetExtra(), proxyRoundTripper)
+	proxyRoundTripper = transport.NewAuthProxyRoundTripper(user.GetName(), user.GetUID(), user.GetGroups(), user.GetExtra(), proxyRoundTripper)
 
 	// If we are upgrading, then the upgrade path tries to use this request with the TLS config we provide, but it does
 	// NOT use the proxyRoundTripper.  It's a direct dial that bypasses the proxyRoundTripper.  This means that we have to
 	// attach the "correct" user headers to the request ahead of time.
 	if upgrade {
-		transport.SetAuthProxyHeaders(newReq, user.GetName(), user.GetGroups(), user.GetExtra())
+		transport.SetAuthProxyHeaders(newReq, user.GetName(), user.GetUID(), user.GetGroups(), user.GetExtra())
 	}
 
 	handler := proxy.NewUpgradeAwareHandler(location, proxyRoundTripper, true, upgrade, &responder{w: w})
