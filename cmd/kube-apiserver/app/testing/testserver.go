@@ -179,6 +179,9 @@ func StartTestServer(t Logger, instanceOptions *TestServerInstanceOptions, custo
 		fs.AddFlagSet(f)
 	}
 
+	// TODO: THIS IS A SUPER HACK. HOW CAN WE CHANGE ONLY OUR ONE TEST TO HAVE THIS SETTING?
+	s.Authorization.Modes = []string{"RBAC"}
+
 	s.SecureServing.Listener, s.SecureServing.BindPort, err = createLocalhostListenerOnFreePort()
 	if err != nil {
 		return result, fmt.Errorf("failed to create listener: %v", err)
