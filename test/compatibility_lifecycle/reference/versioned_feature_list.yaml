@@ -147,6 +147,10 @@
     lockToDefault: false
     preRelease: Beta
     version: "1.33"
+  - default: true
+    lockToDefault: false
+    preRelease: GA
+    version: "1.37"
 - name: ClusterTrustBundleProjection
   versionedSpecs:
   - default: false
@@ -157,6 +161,10 @@
     lockToDefault: false
     preRelease: Beta
     version: "1.33"
+  - default: true
+    lockToDefault: false
+    preRelease: GA
+    version: "1.37"
 - name: ComponentFlagz
   versionedSpecs:
   - default: false
@@ -499,6 +507,10 @@
     lockToDefault: false
     preRelease: Beta
     version: "1.36"
+  - default: true
+    lockToDefault: false
+    preRelease: GA
+    version: "1.37"
 - name: DRADeviceTaints
   versionedSpecs:
   - default: false
@@ -509,6 +521,10 @@
     lockToDefault: false
     preRelease: Beta
     version: "1.36"
+  - default: true
+    lockToDefault: false
+    preRelease: GA
+    version: "1.37"
 - name: DRAExtendedResource
   versionedSpecs:
   - default: false
@@ -623,7 +639,7 @@
     version: "1.35"
 - name: EtcdRangeStream
   versionedSpecs:
-  - default: false
+  - default: true
     lockToDefault: false
     preRelease: Beta
     version: "1.37"
@@ -633,6 +649,12 @@
     lockToDefault: false
     preRelease: Alpha
     version: "1.26"
+- name: ExcludeAdmissionWebhookVirtualResources
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "1.37"
 - name: ExecProbeTimeout
   versionedSpecs:
   - default: true
@@ -723,7 +745,17 @@
     lockToDefault: false
     preRelease: Beta
     version: "1.35"
+  - default: true
+    lockToDefault: true
+    preRelease: GA
+    version: "1.37"
 - name: HPAGeneration
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "1.37"
+- name: HPAOptimizedSelectorStore
   versionedSpecs:
   - default: true
     lockToDefault: false
@@ -1051,6 +1083,10 @@
     lockToDefault: false
     preRelease: Alpha
     version: "1.36"
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "1.37"
 - name: MatchLabelKeysInPodAffinity
   versionedSpecs:
   - default: false
@@ -1183,6 +1219,10 @@
     lockToDefault: false
     preRelease: Alpha
     version: "1.36"
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "1.37"
 - name: NFTablesProxyMode
   versionedSpecs:
   - default: false
@@ -1231,6 +1271,12 @@
     lockToDefault: true
     preRelease: GA
     version: "1.33"
+- name: NodeLifecycleConditions
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "1.37"
 - name: NodeLogQuery
   versionedSpecs:
   - default: false
@@ -1295,6 +1341,10 @@
     lockToDefault: false
     preRelease: Alpha
     version: "1.36"
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "1.37"
 - name: PLEGOnDemandRelist
   versionedSpecs:
   - default: true
@@ -1349,6 +1399,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "1.34"
+- name: PodLevelResourcesFixKubeletQOSClass
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "1.37"
 - name: PodLogsQuerySplitStreams
   versionedSpecs:
   - default: false
@@ -1433,12 +1489,6 @@
     lockToDefault: true
     preRelease: GA
     version: "1.35"
-- name: PreventStaticPodAPIReferences
-  versionedSpecs:
-  - default: true
-    lockToDefault: false
-    preRelease: Beta
-    version: "1.34"
 - name: ProcMountType
   versionedSpecs:
   - default: false
@@ -1851,6 +1901,10 @@
     lockToDefault: false
     preRelease: Beta
     version: "1.35"
+  - default: true
+    lockToDefault: false
+    preRelease: GA
+    version: "1.37"
 - name: StrictIPCIDRValidation
   versionedSpecs:
   - default: false
@@ -2057,7 +2111,7 @@
     version: "1.34"
 - name: WatchListCompression
   versionedSpecs:
-  - default: false
+  - default: true
     lockToDefault: false
     preRelease: Beta
     version: "1.37"

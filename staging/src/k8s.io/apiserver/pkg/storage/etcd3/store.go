@@ -21,6 +21,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"iter"
 	"path"
 	"reflect"
 	"strings"
@@ -31,6 +32,8 @@ import (
 	clientv3 "go.etcd.io/etcd/client/v3"
 	"go.etcd.io/etcd/client/v3/kubernetes"
 	"go.opentelemetry.io/otel/attribute"
+	grpccodes "google.golang.org/grpc/codes"
+	grpcstatus "google.golang.org/grpc/status"
 
 	etcdrpc "go.etcd.io/etcd/api/v3/v3rpc/rpctypes"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -729,6 +732,18 @@ func (s *store) GetCurrentResourceVersion(ctx context.Context) (uint64, error) {
 	return uint64(getResp.Revision), nil
 }
 
+// shouldStream determines whether a list request should use etcd RangeStream.
+func shouldStream(opts storage.ListOptions) bool {
+	// Only recursive lists stream, a non-recursive request reads a single object.
+	// Streaming's main goal is to bound unbounded reads, limited and continue requests are
+	// already bounded by pagination, so we are opting out of streaming for them for now.
+	if !opts.Recursive || opts.Predicate.Limit > 0 || opts.Predicate.Continue != "" {
+		return false
+	}
+	return utilfeature.DefaultFeatureGate.Enabled(features.EtcdRangeStream) &&
+		etcdfeature.DefaultFeatureSupportChecker.Supports(storage.RangeStream)
+}
+
 // GetList implements storage.Interface.
 func (s *store) GetList(ctx context.Context, key string, opts storage.ListOptions, listObj runtime.Object) error {
 	keyPrefix, err := s.prepareKey(key, opts.Recursive)
@@ -765,7 +780,7 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
 	// loop until we have filled the requested limit from etcd or there are no more results
 	var lastKey []byte
 	var hasMore bool
-	var getResp kubernetes.ListResponse
+	var count int64
 	var numFetched int
 	var numEvald int
 	// Because these metrics are for understanding the costs of handling LIST requests,
@@ -776,74 +791,185 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
 	}()
 
 	aggregator := s.listErrAggrFactory()
-	for {
-		getResp, err = s.getList(ctx, keyPrefix, opts.Recursive, kubernetes.ListOptions{
-			Revision: withRev,
-			Limit:    limit,
-			Continue: continueKey,
-		})
-		if err != nil {
-			if errors.Is(err, etcdrpc.ErrFutureRev) {
-				currentRV, getRVErr := s.GetCurrentResourceVersion(ctx)
-				if getRVErr != nil {
-					// If we can't get the current RV, use 0 as a fallback.
-					currentRV = 0
-				}
-				return storage.NewTooLargeResourceVersionError(uint64(withRev), currentRV, 0)
-			}
-			return interpretListError(err, len(opts.Predicate.Continue) > 0, continueKey, keyPrefix)
-		}
-		numFetched += len(getResp.Kvs)
-		if err = s.validateMinimumResourceVersion(opts.ResourceVersion, uint64(getResp.Revision)); err != nil {
-			return err
-		}
-		hasMore = int64(len(getResp.Kvs)) < getResp.Count
 
-		if len(getResp.Kvs) == 0 && hasMore {
+	chunks := s.pagedChunks(ctx, keyPrefix, opts, withRev, limit, continueKey)
+	if shouldStream(opts) {
+		streamChunks, supported := s.streamChunks(ctx, keyPrefix, withRev)
+		if supported {
+			chunks = streamChunks
+		} else {
+			etcdfeature.DefaultFeatureSupportChecker.MarkUnsupported(storage.RangeStream)
+			klog.V(4).Infof("etcd server does not support RangeStream for %v; falling back to paginated list", s.groupResource)
+		}
+	}
+
+	for chunk, chunkErr := range chunks {
+		if chunkErr != nil {
+			return chunkErr
+		}
+		numFetched += len(chunk.kvs)
+		if chunk.revision != nil {
+			if withRev == 0 {
+				if err = s.validateMinimumResourceVersion(opts.ResourceVersion, uint64(*chunk.revision)); err != nil {
+					return err
+				}
+				withRev = *chunk.revision
+			} else if *chunk.revision != withRev {
+				return fmt.Errorf("etcd returned revision %d for a list read at revision %d", *chunk.revision, withRev)
+			}
+		}
+		if len(chunk.kvs) == 0 && chunk.hasMore {
 			return fmt.Errorf("no results were found, but etcd indicated there were more values remaining")
 		}
-		// indicate to the client which resource version was returned, and use the same resource version for subsequent requests.
-		if withRev == 0 {
-			withRev = getResp.Revision
-		}
+		count = chunk.count
 
-		chunkLastKey, chunkEvaluated, chunkHasMore, err := s.appendChunk(ctx, getResp.Kvs, opts.Predicate, newItemFunc, aggregator, v, paging)
+		chunkLastKey, chunkEvaluated, limitReached, err := s.appendChunk(ctx, chunk.kvs, opts.Predicate, newItemFunc, aggregator, v, paging)
 		if err != nil {
 			return err
 		}
 		numEvald += chunkEvaluated
-		if chunkHasMore {
-			hasMore = true
-		}
 		if chunkLastKey != nil {
 			lastKey = chunkLastKey
 		}
-		continueKey = string(lastKey) + "\x00"
+		hasMore = chunk.hasMore || limitReached
 
-		// no more results remain or we didn't request paging
-		if !hasMore || !paging {
+		// the limit was reached mid-chunk or no results remain
+		if limitReached || !chunk.hasMore {
 			break
 		}
 		// we're paging but we have filled our bucket
-		if int64(v.Len()) >= opts.Predicate.Limit {
+		if paging && int64(v.Len()) >= opts.Predicate.Limit {
 			break
-		}
-
-		if limit < maxLimit {
-			// We got incomplete result due to field/label selector dropping the object.
-			// Double page size to reduce total number of calls to etcd.
-			limit *= 2
-			if limit > maxLimit {
-				limit = maxLimit
-			}
 		}
 	}
 
-	continueValue, remainingItemCount, err := storage.PrepareContinueToken(string(lastKey), keyPrefix, withRev, getResp.Count, hasMore, opts)
+	continueValue, remainingItemCount, err := storage.PrepareContinueToken(string(lastKey), keyPrefix, withRev, count, hasMore, opts)
 	if err != nil {
 		return err
 	}
 	return s.finalizeList(listObj, opts.Predicate, uint64(withRev), continueValue, remainingItemCount, aggregator, v)
+}
+
+// listChunk is one batch of kvs from a list read: a page of a paginated Range, or a
+// chunk of a RangeStream.
+type listChunk struct {
+	kvs      []*mvccpb.KeyValue
+	revision *int64
+	count    int64 // etcd's count of keys remaining in the range, including this batch
+	hasMore  bool
+}
+
+func (s *store) pagedChunks(ctx context.Context, keyPrefix string, opts storage.ListOptions, withRev, limit int64, continueKey string) iter.Seq2[listChunk, error] {
+	return func(yield func(listChunk, error) bool) {
+		for {
+			getResp, err := s.getList(ctx, keyPrefix, opts.Recursive, kubernetes.ListOptions{
+				Revision: withRev,
+				Limit:    limit,
+				Continue: continueKey,
+			})
+			if err != nil {
+				yield(listChunk{}, s.listReadError(ctx, err, withRev, len(opts.Predicate.Continue) > 0, continueKey, keyPrefix))
+				return
+			}
+			hasMore := int64(len(getResp.Kvs)) < getResp.Count
+			// use the same resource version for subsequent requests
+			if withRev == 0 {
+				withRev = getResp.Revision
+			}
+			// capture the next continue key before yielding, the consumer nils out kvs as it decodes them
+			if len(getResp.Kvs) > 0 {
+				continueKey = string(getResp.Kvs[len(getResp.Kvs)-1].Key) + "\x00"
+			}
+			revision := withRev
+			if !yield(listChunk{kvs: getResp.Kvs, revision: &revision, count: getResp.Count, hasMore: hasMore}, nil) {
+				return
+			}
+			if !hasMore {
+				return
+			}
+			if limit < maxLimit {
+				// We got incomplete result due to field/label selector dropping the object.
+				// Double page size to reduce total number of calls to etcd.
+				limit *= 2
+				if limit > maxLimit {
+					limit = maxLimit
+				}
+			}
+		}
+	}
+}
+
+// listReadError maps an etcd list read error to the error GetList returns.
+func (s *store) listReadError(ctx context.Context, err error, withRev int64, paging bool, continueKey, keyPrefix string) error {
+	if errors.Is(err, etcdrpc.ErrFutureRev) {
+		currentRV, getRVErr := s.GetCurrentResourceVersion(ctx)
+		if getRVErr != nil {
+			// If we can't get the current RV, use 0 as a fallback.
+			currentRV = 0
+		}
+		return storage.NewTooLargeResourceVersionError(uint64(withRev), currentRV, 0)
+	}
+	return interpretListError(err, paging, continueKey, keyPrefix)
+}
+
+// streamChunks reads the list as a single etcd RangeStream, pinned to withRev when
+// nonzero. supported is false when the etcd server does not implement RangeStream.
+func (s *store) streamChunks(ctx context.Context, keyPrefix string, withRev int64) (chunks iter.Seq2[listChunk, error], supported bool) {
+	startTime := time.Now()
+	streamOpts := []clientv3.OpOption{clientv3.WithRange(clientv3.GetPrefixRangeEnd(keyPrefix))}
+	if withRev > 0 {
+		streamOpts = append(streamOpts, clientv3.WithRev(withRev))
+	}
+	stream, streamErr := s.client.KV.GetStream(ctx, keyPrefix, streamOpts...)
+	var first clientv3.RangeStreamResponse
+	var firstOk bool
+	if streamErr == nil {
+		first, firstOk = <-stream
+		if firstOk && grpcstatus.Code(first.Err()) == grpccodes.Unimplemented {
+			return nil, false
+		}
+	} else if grpcstatus.Code(streamErr) == grpccodes.Unimplemented {
+		return nil, false
+	}
+	return func(yield func(listChunk, error) bool) {
+		var err error
+		defer func() {
+			metrics.RecordEtcdRequest("listStream", s.groupResource, err, startTime)
+		}()
+		if err = streamErr; err != nil {
+			yield(listChunk{}, s.listReadError(ctx, err, withRev, false, "", keyPrefix))
+			return
+		}
+		estimator := s.getResourceSizeEstimator()
+		var revision *int64
+		if withRev > 0 {
+			revision = &withRev
+		}
+		resp, ok := first, firstOk
+		for ok {
+			if err = resp.Err(); err != nil {
+				yield(listChunk{}, s.listReadError(ctx, err, withRev, false, "", keyPrefix))
+				return
+			}
+			rangeResp := resp.RangeResponse
+			if estimator != nil && len(rangeResp.Kvs) > 0 {
+				estimator.Update(rangeResp.Kvs)
+			}
+			// A pinned stream's final header holds the latest store revision, not withRev.
+			if revision == nil && rangeResp.Header != nil {
+				revision = &rangeResp.Header.Revision
+			}
+			next, nextOk := <-stream
+			if !yield(listChunk{kvs: rangeResp.Kvs, revision: revision, count: rangeResp.Count, hasMore: nextOk}, nil) {
+				return
+			}
+			resp, ok = next, nextOk
+		}
+		if revision == nil {
+			err = fmt.Errorf("rangeStream for %q completed without a revision", keyPrefix)
+			yield(listChunk{}, err)
+		}
+	}, true
 }
 
 func (s *store) finalizeList(listObj runtime.Object, pred storage.SelectionPredicate, rev uint64, continueValue string, remainingItemCount *int64, aggregator ListErrorAggregator, v reflect.Value) error {
@@ -898,7 +1024,7 @@ func (s *store) processListItem(ctx context.Context, kv *mvccpb.KeyValue, pred s
 }
 
 // appendChunk appends the kvs matching pred to v.
-func (s *store) appendChunk(ctx context.Context, kvs []*mvccpb.KeyValue, pred storage.SelectionPredicate, newItemFunc func() runtime.Object, aggregator ListErrorAggregator, v reflect.Value, paging bool) (lastKey []byte, evaluated int, hasMore bool, err error) {
+func (s *store) appendChunk(ctx context.Context, kvs []*mvccpb.KeyValue, pred storage.SelectionPredicate, newItemFunc func() runtime.Object, aggregator ListErrorAggregator, v reflect.Value, paging bool) (lastKey []byte, evaluated int, limitReached bool, err error) {
 	// avoid small allocations for the result slice, since this can be called in many
 	// different contexts and we don't know how significantly the result will be filtered
 	if pred.Empty() {

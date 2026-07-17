@@ -51,11 +51,11 @@ import (
 	"k8s.io/klog/v2"
 	kubeschedulerconfigv1 "k8s.io/kube-scheduler/config/v1"
 	apiservertesting "k8s.io/kubernetes/cmd/kube-apiserver/app/testing"
-	"k8s.io/kubernetes/pkg/controller/resourceclaim"
 	"k8s.io/kubernetes/pkg/features"
 	"k8s.io/kubernetes/pkg/scheduler"
 	"k8s.io/kubernetes/pkg/scheduler/apis/config"
 	kubeschedulerscheme "k8s.io/kubernetes/pkg/scheduler/apis/config/scheme"
+	schedulermetrics "k8s.io/kubernetes/pkg/scheduler/metrics"
 	schedutil "k8s.io/kubernetes/pkg/scheduler/util"
 	"k8s.io/kubernetes/test/integration/framework"
 	"k8s.io/kubernetes/test/integration/util"
@@ -69,7 +69,7 @@ const (
 	throughputSampleInterval = time.Second
 )
 
-var dataItemsDir = flag.String("data-items-dir", "", "destination directory for storing generated data items for perf dashboard")
+var dataItemsDir = flag.String("data-items-dir", "", "destination directory for storing generated data items for perf dashboard or performance profiles")
 
 var runID = time.Now().Format(dateFormat)
 
@@ -150,12 +150,7 @@ func mustSetupCluster(tCtx ktesting.TContext, config *config.KubeSchedulerConfig
 	if enabledFeatures[features.DynamicResourceAllocation] {
 		// Testing of DRA with inline resource claims depends on this
 		// controller for creating and removing ResourceClaims.
-		features := resourceclaim.Features{
-			AdminAccess:            true,
-			PrioritizedList:        true,
-			WorkloadResourceClaims: enabledFeatures[features.DRAWorkloadResourceClaims],
-		}
-		runResourceClaimController = util.CreateResourceClaimController(tCtx, tCtx, tCtx.Client(), informerFactory, features)
+		runResourceClaimController = util.CreateResourceClaimController(tCtx, tCtx, tCtx.Client(), informerFactory)
 	}
 
 	informerFactory.Start(tCtx.Done())
@@ -233,6 +228,10 @@ type podScheduling struct {
 	completed     int
 	observedTotal int
 	observedRate  float64
+	activePods    int
+	backoffPods   int
+	unschedulable int
+	gatedPods     int
 }
 
 // makeBasePod creates a Pod object to be used as a template.
@@ -314,15 +313,20 @@ func dataItems2JSONFile(dataItems DataItems, namePrefix string) error {
 	return os.WriteFile(destFile, formatted.Bytes(), 0644)
 }
 
-func dataFilename(destFile string) (string, error) {
+func createOutputFile(suffix string) (*os.File, error) {
+	destFile := perTestFilePrefix + suffix
 	if *dataItemsDir != "" {
 		// Ensure the "dataItemsDir" path is valid.
 		if err := os.MkdirAll(*dataItemsDir, 0750); err != nil {
-			return "", fmt.Errorf("dataItemsDir path %v does not exist and cannot be created: %w", *dataItemsDir, err)
+			return nil, fmt.Errorf("dataItemsDir path %v does not exist and cannot be created: %w", *dataItemsDir, err)
 		}
 		destFile = path.Join(*dataItemsDir, destFile)
 	}
-	return destFile, nil
+	f, err := os.Create(destFile)
+	if err != nil {
+		return nil, fmt.Errorf("create output file: %w", err)
+	}
+	return f, nil
 }
 
 type labelValues struct {
@@ -566,6 +570,11 @@ func (tc *throughputCollector) run(tCtx ktesting.TContext) {
 	started := false
 	skipped := 0
 
+	activePods := schedulermetrics.ActivePods()
+	backoffPods := schedulermetrics.BackoffPods()
+	unschedulablePods := schedulermetrics.UnschedulablePods()
+	gatedPods := schedulermetrics.GatedPods()
+
 	for {
 		select {
 		case <-tCtx.Done():
@@ -623,12 +632,20 @@ func (tc *throughputCollector) run(tCtx ktesting.TContext) {
 			if err != nil {
 				klog.Error(err)
 			}
+			activePods, _ := testutil.GetGaugeMetricValue(activePods)
+			backoffPods, _ := testutil.GetGaugeMetricValue(backoffPods)
+			unschedulable, _ := testutil.GetGaugeMetricValue(unschedulablePods)
+			gatedPods, _ := testutil.GetGaugeMetricValue(gatedPods)
 			tc.progress = append(tc.progress, podScheduling{
 				ts:            now,
 				attempts:      int(counters["unschedulable"] + counters["error"] + counters["scheduled"]),
 				completed:     int(counters["scheduled"]),
 				observedTotal: scheduled,
 				observedRate:  throughput,
+				activePods:    int(activePods),
+				backoffPods:   int(backoffPods),
+				unschedulable: int(unschedulable),
+				gatedPods:     int(gatedPods),
 			})
 
 			lastScheduledCount = scheduled

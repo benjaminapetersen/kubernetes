@@ -221,6 +221,7 @@ message Condition {
   // +kubebuilder:validation:Required
   // +kubebuilder:validation:Type=string
   // +kubebuilder:validation:Format=date-time
+  // +k8s:alpha(since: "1.37")=+k8s:customValidation
   optional Time lastTransitionTime = 4;
 
   // reason contains a programmatic identifier indicating the reason for the condition's last transition.
@@ -707,6 +708,7 @@ message ManagedFieldsEntry {
 
   // Operation is the type of operation which lead to this ManagedFieldsEntry being created.
   // The only valid values for this field are 'Apply' and 'Update'.
+  // +k8s:alpha(since: "1.37")=+k8s:required
   optional string operation = 2;
 
   // APIVersion defines the version of this resource that this field set
@@ -809,6 +811,8 @@ message ObjectMeta {
   // Read-only.
   // More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names#uids
   // +optional
+  // +k8s:alpha(since: "1.37")=+k8s:optional
+  // +k8s:alpha(since: "1.37")=+k8s:immutable
   optional string uid = 5;
 
   // An opaque value that represents the internal version of this object that can
@@ -827,6 +831,8 @@ message ObjectMeta {
   // A sequence number representing a specific generation of the desired state.
   // Populated by the system. Read-only.
   // +optional
+  // +k8s:alpha(since: "1.37")=+k8s:optional
+  // +k8s:alpha(since: "1.37")=+k8s:minimum=0
   optional int64 generation = 7;
 
   // CreationTimestamp is a timestamp representing the server time when this object was
@@ -838,6 +844,7 @@ message ObjectMeta {
   // Null for lists.
   // More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#metadata
   // +optional
+  // +k8s:alpha(since: "1.37")=+k8s:immutable
   optional Time creationTimestamp = 8;
 
   // DeletionTimestamp is RFC 3339 date and time at which this resource will be deleted. This
@@ -859,6 +866,8 @@ message ObjectMeta {
   // Read-only.
   // More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#metadata
   // +optional
+  // +k8s:alpha(since: "1.37")=+k8s:optional
+  // +k8s:alpha(since: "1.37")=+k8s:immutable
   optional Time deletionTimestamp = 9;
 
   // Number of seconds allowed for this object to gracefully terminate before
@@ -866,6 +875,8 @@ message ObjectMeta {
   // May only be shortened.
   // Read-only.
   // +optional
+  // +k8s:alpha(since: "1.37")=+k8s:optional
+  // +k8s:alpha(since: "1.37")=+k8s:immutable
   optional int64 deletionGracePeriodSeconds = 10;
 
   // Map of string keys and values that can be used to organize and categorize
@@ -891,6 +902,7 @@ message ObjectMeta {
   // +patchStrategy=merge
   // +listType=map
   // +listMapKey=uid
+  // +k8s:alpha(since:"1.37")=+k8s:optional
   repeated OwnerReference ownerReferences = 13;
 
   // Must be empty before the object is deleted from the registry. Each entry
@@ -921,6 +933,7 @@ message ObjectMeta {
   //
   // +optional
   // +listType=atomic
+  // +k8s:alpha(since: "1.37")=+k8s:optional
   repeated ManagedFieldsEntry managedFields = 17;
 }
 
@@ -930,18 +943,22 @@ message ObjectMeta {
 // +structType=atomic
 message OwnerReference {
   // API version of the referent.
+  // +k8s:alpha(since:"1.37")=+k8s:required
   optional string apiVersion = 5;
 
   // Kind of the referent.
   // More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+  // +k8s:alpha(since:"1.37")=+k8s:required
   optional string kind = 1;
 
   // Name of the referent.
   // More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names#names
+  // +k8s:alpha(since:"1.37")=+k8s:required
   optional string name = 3;
 
   // UID of the referent.
   // More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names#uids
+  // +k8s:alpha(since:"1.37")=+k8s:required
   optional string uid = 4;
 
   // If true, this reference points to the managing controller.
@@ -967,6 +984,7 @@ message PartialObjectMetadata {
   // Standard object's metadata.
   // More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#metadata
   // +optional
+  // +k8s:opaqueType
   optional ObjectMeta metadata = 1;
 }
 

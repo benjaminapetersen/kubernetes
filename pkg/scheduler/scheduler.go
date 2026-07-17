@@ -31,6 +31,7 @@ import (
 	"k8s.io/client-go/informers"
 	coreinformers "k8s.io/client-go/informers/core/v1"
 	clientset "k8s.io/client-go/kubernetes"
+	schedulinglisters "k8s.io/client-go/listers/scheduling/v1alpha3"
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
 	resourceslicetracker "k8s.io/dynamic-resource-allocation/resourceslice/tracker"
@@ -101,6 +102,8 @@ type Scheduler struct {
 	Profiles profile.Map
 
 	client clientset.Interface
+
+	compositePodGroupLister schedulinglisters.CompositePodGroupLister
 
 	nodeInfoSnapshot *internalcache.Snapshot
 
@@ -344,8 +347,7 @@ func New(ctx context.Context,
 		// If device taint rules are disabled, the additional informers are not needed and
 		// the tracker turns into a simple wrapper around the slice informer.
 		if resourceSliceTrackerOpts.EnableDeviceTaintRules {
-			resourceSliceTrackerOpts.TaintInformer = informerFactory.Resource().V1beta2().DeviceTaintRules()
-			resourceSliceTrackerOpts.ClassInformer = informerFactory.Resource().V1().DeviceClasses()
+			resourceSliceTrackerOpts.TaintInformer = informerFactory.Resource().V1().DeviceTaintRules()
 		}
 		resourceSliceTracker, err = resourceslicetracker.StartTracker(ctx, resourceSliceTrackerOpts)
 		if err != nil {
@@ -360,7 +362,7 @@ func New(ctx context.Context,
 		apiDispatcher = apidispatcher.New(client, int(options.parallelism), apicalls.Relevances)
 	}
 
-	schedulerCache := internalcache.New(ctx, apiDispatcher, feature.DefaultFeatureGate.Enabled(features.GenericWorkload))
+	schedulerCache := internalcache.New(ctx, apiDispatcher, feature.DefaultFeatureGate.Enabled(features.GenericWorkload), feature.DefaultFeatureGate.Enabled(features.CompositePodGroup))
 
 	profiles, err := profile.NewMap(ctx, options.profiles, registry, recorderFactory,
 		frameworkruntime.WithComponentConfigVersion(options.componentConfigVersion),
@@ -369,6 +371,7 @@ func New(ctx context.Context,
 		frameworkruntime.WithInformerFactory(informerFactory),
 		frameworkruntime.WithSharedDRAManager(draManager),
 		frameworkruntime.WithSnapshotSharedLister(snapshot),
+		frameworkruntime.WithMutableSnapshotLister(snapshot),
 		frameworkruntime.WithCaptureProfile(frameworkruntime.CaptureProfile(options.frameworkCapturer)),
 		frameworkruntime.WithParallelism(int(options.parallelism)),
 		frameworkruntime.WithExtenders(extenders),
@@ -444,6 +447,11 @@ func New(ctx context.Context,
 	debugger := cachedebugger.New(nodeLister, podLister, schedulerCache, podQueue)
 	debugger.ListenForSignal(ctx)
 
+	var compositePodGroupLister schedulinglisters.CompositePodGroupLister
+	if feature.DefaultFeatureGate.Enabled(features.CompositePodGroup) {
+		compositePodGroupLister = informerFactory.Scheduling().V1alpha3().CompositePodGroups().Lister()
+	}
+
 	sched := &Scheduler{
 		Cache:                                  schedulerCache,
 		client:                                 client,
@@ -455,6 +463,7 @@ func New(ctx context.Context,
 		Profiles:                               profiles,
 		logger:                                 logger,
 		APIDispatcher:                          apiDispatcher,
+		compositePodGroupLister:                compositePodGroupLister,
 		nominatedNodeNameForExpectationEnabled: feature.DefaultFeatureGate.Enabled(features.NominatedNodeNameForExpectation),
 		genericWorkloadEnabled:                 feature.DefaultFeatureGate.Enabled(features.GenericWorkload),
 	}

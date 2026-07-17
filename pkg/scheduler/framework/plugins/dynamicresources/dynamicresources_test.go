@@ -80,6 +80,27 @@ func init() {
 	metrics.InitMetrics()
 }
 
+func TestPostFilterNoOpStatusHasNoUserVisibleReason(t *testing.T) {
+	pod := st.MakePod().Name("pod").Namespace("default").Obj()
+
+	t.Run("plugin disabled", func(t *testing.T) {
+		_, status := (&DynamicResources{}).PostFilter(context.Background(), framework.NewCycleState(), pod, nil)
+
+		require.Equal(t, fwk.Unschedulable, status.Code())
+		assert.Empty(t, status.Reasons())
+	})
+
+	t.Run("no claims", func(t *testing.T) {
+		state := framework.NewCycleState()
+		state.Write(stateKey, &stateData{})
+
+		_, status := (&DynamicResources{enabled: true}).PostFilter(context.Background(), state, pod, nil)
+
+		require.Equal(t, fwk.Unschedulable, status.Code())
+		assert.Empty(t, status.Reasons())
+	})
+}
+
 var (
 	podKind      = v1.SchemeGroupVersion.WithKind("Pod")
 	podGroupKind = schedulingapi.SchemeGroupVersion.WithKind("PodGroup")
@@ -1222,6 +1243,69 @@ type testPluginCase struct {
 func TestPlugin(t *testing.T) {
 	testPlugin(ktesting.Init(t))
 }
+
+func TestPreFilterReusesPendingAllocationWithNilNodeSelector(t *testing.T) {
+	tCtx := ktesting.Init(t)
+	featuregatetesting.SetFeatureGatesDuringTest(tCtx, utilfeature.DefaultFeatureGate, featuregatetesting.FeatureOverrides{
+		features.DRAWorkloadResourceClaims: true,
+		features.GenericWorkload:           true,
+	})
+
+	feats := feature.Features{
+		EnableDRAAdminAccess:               true,
+		EnableDRADeviceBindingConditions:   true,
+		EnableDRAResourceClaimDeviceStatus: true,
+		EnableDRASchedulerFilterTimeout:    true,
+		EnableDynamicResourceAllocation:    true,
+		EnableDRAWorkloadResourceClaims:    true,
+	}
+	testCtx := setup(tCtx, nil, []*v1.Node{workerNode}, []*resourceapi.ResourceClaim{pendingPodGroupClaim}, []*resourceapi.DeviceClass{deviceClass}, []*schedulingapi.PodGroup{podGroupWithClaimName}, []apiruntime.Object{workerNodeSlice}, feats, false, nil)
+
+	pendingClaim, err := testCtx.draManager.ResourceClaims().Get(namespace, claimName)
+	if err != nil {
+		t.Fatalf("Get claim: %v", err)
+	}
+	allocatedClaim := pendingClaim.DeepCopy()
+	allocatedClaim.Status.Allocation = allocationResult.DeepCopy()
+	allocatedClaim.Status.Allocation.NodeSelector = nil
+	tCtx.ExpectNoError(testCtx.draManager.ResourceClaims().SignalClaimPendingAllocation(allocatedClaim.UID, allocatedClaim))
+
+	podGroupCycleState := framework.NewCycleState()
+	podGroupCycleState.Write(stateKey, &podGroupStateData{
+		pendingAllocations: sets.New(allocatedClaim.UID),
+	})
+	cycleState := framework.NewCycleState()
+	cycleState.SetPodGroupSchedulingCycle(podGroupCycleState)
+	testCtx.state = cycleState
+
+	nodeInfo := framework.NewNodeInfo()
+	nodeInfo.SetNode(workerNode)
+
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				t.Errorf("PreFilter panicked: %v", r)
+			}
+		}()
+		_, status := testCtx.p.PreFilter(tCtx, testCtx.state, groupedPodWithClaimName, []fwk.NodeInfo{nodeInfo})
+		if !status.IsSuccess() {
+			t.Errorf("PreFilter status: %v", status)
+		}
+	}()
+
+	pluginState, err := getStateData(testCtx.state)
+	if err != nil {
+		t.Fatalf("getStateData: %v", err)
+	}
+	if pluginState.informationsForClaim[0].allocation != allocatedClaim.Status.Allocation {
+		t.Errorf("allocation pointer mismatch: got %p, want %p",
+			pluginState.informationsForClaim[0].allocation, allocatedClaim.Status.Allocation)
+	}
+	if pluginState.informationsForClaim[0].availableOnNodes != nil {
+		t.Errorf("availableOnNodes should be nil, got %v", pluginState.informationsForClaim[0].availableOnNodes)
+	}
+}
+
 func testPlugin(tCtx ktesting.TContext) {
 	testcases := map[string]testPluginCase{
 		"empty": {
@@ -1396,7 +1480,7 @@ func testPlugin(tCtx ktesting.TContext) {
 					},
 				},
 				postfilter: result{
-					status: fwk.NewStatus(fwk.Unschedulable, `still not schedulable`),
+					status: fwk.NewStatus(fwk.Unschedulable),
 				},
 			},
 		},
@@ -1618,7 +1702,7 @@ func testPlugin(tCtx ktesting.TContext) {
 					},
 				},
 				postfilter: result{
-					status: fwk.NewStatus(fwk.Unschedulable, `still not schedulable`),
+					status: fwk.NewStatus(fwk.Unschedulable),
 				},
 			},
 		},
@@ -1643,7 +1727,7 @@ func testPlugin(tCtx ktesting.TContext) {
 				},
 				postfilter: result{
 					inFlightClaims: []metav1.Object{otherAllocatedClaim},
-					status:         fwk.NewStatus(fwk.Unschedulable, `still not schedulable`),
+					status:         fwk.NewStatus(fwk.Unschedulable),
 				},
 			},
 		},
@@ -1735,7 +1819,7 @@ func testPlugin(tCtx ktesting.TContext) {
 					},
 				},
 				postfilter: result{
-					status: fwk.NewStatus(fwk.Unschedulable, `still not schedulable`),
+					status: fwk.NewStatus(fwk.Unschedulable),
 				},
 			},
 		},
@@ -1896,7 +1980,7 @@ func testPlugin(tCtx ktesting.TContext) {
 					status: fwk.NewStatus(fwk.UnschedulableAndUnresolvable, fmt.Sprintf("request req-1: device class %s does not exist", className)),
 				},
 				postfilter: result{
-					status: fwk.NewStatus(fwk.Unschedulable, `no new claims to deallocate`),
+					status: fwk.NewStatus(fwk.Unschedulable),
 				},
 			},
 		},
@@ -2060,7 +2144,7 @@ func testPlugin(tCtx ktesting.TContext) {
 					},
 				},
 				postfilter: result{
-					status: fwk.NewStatus(fwk.Unschedulable, `still not schedulable`),
+					status: fwk.NewStatus(fwk.Unschedulable),
 				},
 			},
 		},
@@ -2120,7 +2204,7 @@ func testPlugin(tCtx ktesting.TContext) {
 					},
 				},
 				postfilter: result{
-					status: fwk.NewStatus(fwk.Unschedulable, `still not schedulable`),
+					status: fwk.NewStatus(fwk.Unschedulable),
 				},
 			},
 		},
@@ -2180,7 +2264,7 @@ func testPlugin(tCtx ktesting.TContext) {
 					status: fwk.NewStatus(fwk.Skip),
 				},
 				postfilter: result{
-					status: fwk.NewStatus(fwk.Unschedulable, `plugin disabled`),
+					status: fwk.NewStatus(fwk.Unschedulable),
 				},
 				preBindPreFlightStatus: fwk.NewStatus(fwk.Skip),
 			},
@@ -2194,7 +2278,7 @@ func testPlugin(tCtx ktesting.TContext) {
 					status: fwk.NewStatus(fwk.Unschedulable, `request req-1: device class does-not-exist does not exist`),
 				},
 				postfilter: result{
-					status: fwk.NewStatus(fwk.Unschedulable, `no new claims to deallocate`),
+					status: fwk.NewStatus(fwk.Unschedulable),
 				},
 			},
 		},
@@ -2208,7 +2292,7 @@ func testPlugin(tCtx ktesting.TContext) {
 					status: fwk.NewStatus(fwk.UnschedulableAndUnresolvable, `claim default/my-pod-my-resource, request req-1: has subrequests, but the DRAPrioritizedList feature is disabled`),
 				},
 				postfilter: result{
-					status: fwk.NewStatus(fwk.Unschedulable, `no new claims to deallocate`),
+					status: fwk.NewStatus(fwk.Unschedulable),
 				},
 			},
 		},
@@ -2221,7 +2305,7 @@ func testPlugin(tCtx ktesting.TContext) {
 					status: fwk.NewStatus(fwk.Unschedulable, `request req-1/subreq-1: device class does-not-exist does not exist`),
 				},
 				postfilter: result{
-					status: fwk.NewStatus(fwk.Unschedulable, `no new claims to deallocate`),
+					status: fwk.NewStatus(fwk.Unschedulable),
 				},
 			},
 		},
@@ -2324,7 +2408,7 @@ func testPlugin(tCtx ktesting.TContext) {
 					},
 				},
 				postfilter: result{
-					status: fwk.NewStatus(fwk.Unschedulable, `still not schedulable`),
+					status: fwk.NewStatus(fwk.Unschedulable),
 				},
 			},
 			metrics: func(tCtx ktesting.TContext, g compbasemetrics.Gatherer) {
@@ -2559,7 +2643,7 @@ func testPlugin(tCtx ktesting.TContext) {
 					},
 				},
 				postfilter: result{
-					status: fwk.NewStatus(fwk.Unschedulable, `still not schedulable`),
+					status: fwk.NewStatus(fwk.Unschedulable),
 				},
 			},
 		},
@@ -3478,7 +3562,7 @@ func testPlugin(tCtx ktesting.TContext) {
 					workerNodeWithCapacity.Name: {status: fwk.NewStatus(fwk.Unschedulable, `Insufficient cpu`)},
 				},
 				postfilter: result{
-					status: fwk.NewStatus(fwk.Unschedulable, "still not schedulable"),
+					status: fwk.NewStatus(fwk.Unschedulable),
 				},
 			},
 		},
@@ -3499,7 +3583,7 @@ func testPlugin(tCtx ktesting.TContext) {
 					workerNodeWithCapacity.Name: {status: fwk.NewStatus(fwk.Unschedulable, `cannot allocate all claims`)},
 				},
 				postfilter: result{
-					status: fwk.NewStatus(fwk.Unschedulable, "still not schedulable"),
+					status: fwk.NewStatus(fwk.Unschedulable),
 				},
 			},
 		},
@@ -3748,7 +3832,7 @@ type testContext struct {
 func (tc *testContext) verify(tCtx ktesting.TContext, expected result, initialObjects []metav1.Object, testPod *v1.Pod, result interface{}, status *fwk.Status) {
 	tCtx.Helper()
 	if expected.status == nil {
-		assert.Nil(tCtx, status)
+		assert.Nil(tCtx, status, status.AsError())
 	} else if actualErr := status.AsError(); actualErr != nil {
 		// Compare only the error strings.
 		assert.ErrorContains(tCtx, actualErr, expected.status.AsError().Error())
@@ -3994,8 +4078,7 @@ func setup(tCtx ktesting.TContext, args *config.DynamicResourcesArgs, nodes []*v
 	resourceSliceTrackerOpts := resourceslicetracker.Options{
 		EnableDeviceTaintRules: true,
 		SliceInformer:          tc.informerFactory.Resource().V1().ResourceSlices(),
-		TaintInformer:          tc.informerFactory.Resource().V1beta2().DeviceTaintRules(),
-		ClassInformer:          tc.informerFactory.Resource().V1().DeviceClasses(),
+		TaintInformer:          tc.informerFactory.Resource().V1().DeviceTaintRules(),
 		KubeClient:             tc.client,
 	}
 	resourceSliceTracker, err := resourceslicetracker.StartTracker(tCtx, resourceSliceTrackerOpts)
@@ -4023,7 +4106,7 @@ func setup(tCtx ktesting.TContext, args *config.DynamicResourcesArgs, nodes []*v
 		doneCheckers = append(doneCheckers, deviceClassHandlerRegistration.HasSyncedChecker())
 	}
 
-	tc.podGroupManager = internalcache.New(tCtx, nil, true)
+	tc.podGroupManager = internalcache.New(tCtx, nil, true, false)
 	for _, obj := range objs {
 		if pod, ok := obj.(*v1.Pod); ok {
 			tc.podGroupManager.AddPodGroupMember(pod)
@@ -4143,7 +4226,7 @@ func createReactor(tracker cgotesting.ObjectTracker, failPatch bool) func(action
 				uidCounter++
 			}
 			if inUseUIDs.Has(obj.GetUID()) {
-				return true, nil, errors.New("UID %s already in use")
+				return true, nil, fmt.Errorf("UID %s already in use", obj.GetUID())
 			}
 			inUseUIDs.Insert(obj.GetUID())
 			obj.SetResourceVersion(fmt.Sprintf("%d", resourceVersionCounter))
@@ -5062,8 +5145,11 @@ func testGatherAllocatedState(tCtx ktesting.TContext) {
 
 			tCtx.Helper()
 			logger := klog.FromContext(tCtx)
+			assumeCacheInformer := &testInformer{}
+			assumeCache := assumecache.NewAssumeCache(tCtx.Logger(), assumeCacheInformer, "", "", nil)
 			draManager := &DefaultDRAManager{
 				resourceClaimTracker: &claimTracker{
+					cache:               assumeCache,
 					inFlightAllocations: make(map[types.UID]inFlightAllocation),
 					allocatedDevices:    newAllocatedDevices(logger),
 				},
@@ -5073,6 +5159,7 @@ func testGatherAllocatedState(tCtx ktesting.TContext) {
 			}
 			if tc.inflightResourceClaims != nil {
 				for claimUID, obj := range tc.inflightResourceClaims {
+					assumeCacheInformer.add(obj)
 					err := draManager.resourceClaimTracker.SignalClaimPendingAllocation(claimUID, obj)
 					if err != nil {
 						if !tc.expectErr {

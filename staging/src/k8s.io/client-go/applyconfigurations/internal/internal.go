@@ -3880,6 +3880,33 @@ var schemaYAML = typed.YAMLObject(`types:
           elementRelationship: associative
           keys:
           - type
+- name: io.k8s.api.certificates.v1.ClusterTrustBundle
+  map:
+    fields:
+    - name: apiVersion
+      type:
+        scalar: string
+    - name: kind
+      type:
+        scalar: string
+    - name: metadata
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.ObjectMeta
+      default: {}
+    - name: spec
+      type:
+        namedType: io.k8s.api.certificates.v1.ClusterTrustBundleSpec
+      default: {}
+- name: io.k8s.api.certificates.v1.ClusterTrustBundleSpec
+  map:
+    fields:
+    - name: signerName
+      type:
+        scalar: string
+    - name: trustBundle
+      type:
+        scalar: string
+      default: ""
 - name: io.k8s.api.certificates.v1alpha1.ClusterTrustBundle
   map:
     fields:
@@ -12795,6 +12822,60 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: value
       type:
         scalar: string
+- name: io.k8s.api.resource.v1.DeviceTaintRule
+  map:
+    fields:
+    - name: apiVersion
+      type:
+        scalar: string
+    - name: kind
+      type:
+        scalar: string
+    - name: metadata
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.ObjectMeta
+      default: {}
+    - name: spec
+      type:
+        namedType: io.k8s.api.resource.v1.DeviceTaintRuleSpec
+      default: {}
+    - name: status
+      type:
+        namedType: io.k8s.api.resource.v1.DeviceTaintRuleStatus
+      default: {}
+- name: io.k8s.api.resource.v1.DeviceTaintRuleSpec
+  map:
+    fields:
+    - name: deviceSelector
+      type:
+        namedType: io.k8s.api.resource.v1.DeviceTaintSelector
+    - name: taint
+      type:
+        namedType: io.k8s.api.resource.v1.DeviceTaint
+      default: {}
+- name: io.k8s.api.resource.v1.DeviceTaintRuleStatus
+  map:
+    fields:
+    - name: conditions
+      type:
+        list:
+          elementType:
+            namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Condition
+          elementRelationship: associative
+          keys:
+          - type
+- name: io.k8s.api.resource.v1.DeviceTaintSelector
+  map:
+    fields:
+    - name: device
+      type:
+        scalar: string
+    - name: driver
+      type:
+        scalar: string
+    - name: pool
+      type:
+        scalar: string
 - name: io.k8s.api.resource.v1.DeviceToleration
   map:
     fields:
@@ -14738,6 +14819,124 @@ var schemaYAML = typed.YAMLObject(`types:
         elementType:
           namedType: __untyped_deduced_
         elementRelationship: separable
+- name: io.k8s.api.scheduling.v1alpha3.CompositeBasicSchedulingPolicy
+  map:
+    elementType:
+      scalar: untyped
+      list:
+        elementType:
+          namedType: __untyped_atomic_
+        elementRelationship: atomic
+      map:
+        elementType:
+          namedType: __untyped_deduced_
+        elementRelationship: separable
+- name: io.k8s.api.scheduling.v1alpha3.CompositeGangSchedulingPolicy
+  map:
+    fields:
+    - name: minGroupCount
+      type:
+        scalar: numeric
+      default: 0
+- name: io.k8s.api.scheduling.v1alpha3.CompositePodGroup
+  map:
+    fields:
+    - name: apiVersion
+      type:
+        scalar: string
+    - name: kind
+      type:
+        scalar: string
+    - name: metadata
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.ObjectMeta
+      default: {}
+    - name: spec
+      type:
+        namedType: io.k8s.api.scheduling.v1alpha3.CompositePodGroupSpec
+      default: {}
+    - name: status
+      type:
+        namedType: io.k8s.api.scheduling.v1alpha3.CompositePodGroupStatus
+      default: {}
+- name: io.k8s.api.scheduling.v1alpha3.CompositePodGroupSchedulingPolicy
+  map:
+    fields:
+    - name: basic
+      type:
+        namedType: io.k8s.api.scheduling.v1alpha3.CompositeBasicSchedulingPolicy
+    - name: gang
+      type:
+        namedType: io.k8s.api.scheduling.v1alpha3.CompositeGangSchedulingPolicy
+    unions:
+    - fields:
+      - fieldName: basic
+        discriminatorValue: Basic
+      - fieldName: gang
+        discriminatorValue: Gang
+- name: io.k8s.api.scheduling.v1alpha3.CompositePodGroupSpec
+  map:
+    fields:
+    - name: parentCompositePodGroupName
+      type:
+        scalar: string
+    - name: priority
+      type:
+        scalar: numeric
+    - name: priorityClassName
+      type:
+        scalar: string
+    - name: schedulingPolicy
+      type:
+        namedType: io.k8s.api.scheduling.v1alpha3.CompositePodGroupSchedulingPolicy
+      default: {}
+    - name: workloadRef
+      type:
+        namedType: io.k8s.api.scheduling.v1alpha3.WorkloadReference
+- name: io.k8s.api.scheduling.v1alpha3.CompositePodGroupStatus
+  map:
+    fields:
+    - name: conditions
+      type:
+        list:
+          elementType:
+            namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Condition
+          elementRelationship: associative
+          keys:
+          - type
+- name: io.k8s.api.scheduling.v1alpha3.CompositePodGroupTemplate
+  map:
+    fields:
+    - name: compositePodGroupTemplates
+      type:
+        list:
+          elementType:
+            namedType: io.k8s.api.scheduling.v1alpha3.CompositePodGroupTemplate
+          elementRelationship: associative
+          keys:
+          - name
+    - name: name
+      type:
+        scalar: string
+      default: ""
+    - name: podGroupTemplates
+      type:
+        list:
+          elementType:
+            namedType: io.k8s.api.scheduling.v1alpha3.PodGroupTemplate
+          elementRelationship: associative
+          keys:
+          - name
+    - name: priority
+      type:
+        scalar: numeric
+    - name: priorityClassName
+      type:
+        scalar: string
+    - name: schedulingPolicy
+      type:
+        namedType: io.k8s.api.scheduling.v1alpha3.CompositePodGroupSchedulingPolicy
+      default: {}
 - name: io.k8s.api.scheduling.v1alpha3.DisruptionMode
   map:
     fields:
@@ -14836,6 +15035,9 @@ var schemaYAML = typed.YAMLObject(`types:
         namedType: io.k8s.api.scheduling.v1alpha3.DisruptionMode
       default:
         single: {}
+    - name: parentCompositePodGroupName
+      type:
+        scalar: string
     - name: preemptionPolicy
       type:
         scalar: string
@@ -14892,6 +15094,9 @@ var schemaYAML = typed.YAMLObject(`types:
       type:
         scalar: string
       default: ""
+    - name: preemptionPolicy
+      type:
+        scalar: string
     - name: priority
       type:
         scalar: numeric
@@ -14977,6 +15182,14 @@ var schemaYAML = typed.YAMLObject(`types:
 - name: io.k8s.api.scheduling.v1alpha3.WorkloadSpec
   map:
     fields:
+    - name: compositePodGroupTemplates
+      type:
+        list:
+          elementType:
+            namedType: io.k8s.api.scheduling.v1alpha3.CompositePodGroupTemplate
+          elementRelationship: associative
+          keys:
+          - name
     - name: controllerRef
       type:
         namedType: io.k8s.api.scheduling.v1alpha3.TypedLocalObjectReference
@@ -15715,6 +15928,48 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: count
       type:
         scalar: numeric
+- name: io.k8s.api.storagemigration.v1.StorageVersionMigration
+  map:
+    fields:
+    - name: apiVersion
+      type:
+        scalar: string
+    - name: kind
+      type:
+        scalar: string
+    - name: metadata
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.ObjectMeta
+      default: {}
+    - name: spec
+      type:
+        namedType: io.k8s.api.storagemigration.v1.StorageVersionMigrationSpec
+      default: {}
+    - name: status
+      type:
+        namedType: io.k8s.api.storagemigration.v1.StorageVersionMigrationStatus
+      default: {}
+- name: io.k8s.api.storagemigration.v1.StorageVersionMigrationSpec
+  map:
+    fields:
+    - name: resource
+      type:
+        namedType: io.k8s.apimachinery.pkg.apis.meta.v1.GroupResource
+      default: {}
+- name: io.k8s.api.storagemigration.v1.StorageVersionMigrationStatus
+  map:
+    fields:
+    - name: conditions
+      type:
+        list:
+          elementType:
+            namedType: io.k8s.apimachinery.pkg.apis.meta.v1.Condition
+          elementRelationship: associative
+          keys:
+          - type
+    - name: resourceVersion
+      type:
+        scalar: string
 - name: io.k8s.api.storagemigration.v1beta1.StorageVersionMigration
   map:
     fields:

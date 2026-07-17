@@ -244,6 +244,13 @@ func GetEtcdStorageDataForNamespaceServedAt(namespace string, v string, isEmulat
 			ExpectedEtcdPath:  "/registry/certificatesigningrequests/csr2",
 			IntroducedVersion: "1.19",
 		},
+
+		gvr("certificates.k8s.io", "v1", "clustertrustbundles"): {
+			Stub:              `{"metadata": {"name": "example.com:signer:abcde"}, "spec": {"signerName":"example.com/signer", "trustBundle": "-----BEGIN CERTIFICATE-----\nMIIBBDCBt6ADAgECAgEAMAUGAytlcDAQMQ4wDAYDVQQDEwVyb290MTAiGA8wMDAx\nMDEwMTAwMDAwMFoYDzAwMDEwMTAxMDAwMDAwWjAQMQ4wDAYDVQQDEwVyb290MTAq\nMAUGAytlcAMhAF2MoFeGa97gK2NGT1h6p1/a1GlMXAXbcjI/OShyIobPozIwMDAP\nBgNVHRMBAf8EBTADAQH/MB0GA1UdDgQWBBTWDdK2CNQiHqRjPaAWYPPtIykQgjAF\nBgMrZXADQQCtom9WGl7m2SAa4tXM9Soo/mbInBsRhn187BMoqTAHInHchKup5/3y\nl1tYJSZZsEXnXrCvw2qLCBNif6+2YYgE\n-----END CERTIFICATE-----\n"}}`,
+			ExpectedEtcdPath:  "/registry/clustertrustbundles/example.com:signer:abcde",
+			ExpectedGVK:       gvkP("certificates.k8s.io", "v1beta1", "ClusterTrustBundle"),
+			IntroducedVersion: "1.37",
+		},
 		// --
 
 		// k8s.io/kubernetes/pkg/apis/certificates/v1alpha1
@@ -267,6 +274,7 @@ func GetEtcdStorageDataForNamespaceServedAt(namespace string, v string, isEmulat
 		gvr("certificates.k8s.io", "v1beta1", "clustertrustbundles"): {
 			Stub:              `{"metadata": {"name": "example.com:signer:abc"}, "spec": {"signerName":"example.com/signer", "trustBundle": "-----BEGIN CERTIFICATE-----\nMIIBBDCBt6ADAgECAgEAMAUGAytlcDAQMQ4wDAYDVQQDEwVyb290MTAiGA8wMDAx\nMDEwMTAwMDAwMFoYDzAwMDEwMTAxMDAwMDAwWjAQMQ4wDAYDVQQDEwVyb290MTAq\nMAUGAytlcAMhAF2MoFeGa97gK2NGT1h6p1/a1GlMXAXbcjI/OShyIobPozIwMDAP\nBgNVHRMBAf8EBTADAQH/MB0GA1UdDgQWBBTWDdK2CNQiHqRjPaAWYPPtIykQgjAF\nBgMrZXADQQCtom9WGl7m2SAa4tXM9Soo/mbInBsRhn187BMoqTAHInHchKup5/3y\nl1tYJSZZsEXnXrCvw2qLCBNif6+2YYgE\n-----END CERTIFICATE-----\n"}}`,
 			ExpectedEtcdPath:  "/registry/clustertrustbundles/example.com:signer:abc",
+			ExpectedGVK:       gvkP("certificates.k8s.io", "v1beta1", "ClusterTrustBundle"),
 			IntroducedVersion: "1.33",
 			RemovedVersion:    "1.39",
 		},
@@ -399,6 +407,16 @@ func GetEtcdStorageDataForNamespaceServedAt(namespace string, v string, isEmulat
 			ExpectedEtcdPath:  "/registry/storageversionmigrations/test-migration",
 			IntroducedVersion: "1.35",
 			RemovedVersion:    "1.41",
+			StatusStub:        `{"status": {"resourceVersion": "", "conditions": [{"type": "Running", "status": "True", "reason": "MigrationRunning", "message": "Migration is running", "lastTransitionTime": "2020-01-01T00:00:00Z"}]}}`,
+			MutatedStatusStub: `{"status": {"resourceVersion": "1", "conditions": [{"type": "Succeeded", "status": "True", "reason": "MigrationSucceeded", "message": "Migration completed", "lastTransitionTime": "2020-01-01T00:00:00Z"}]}}`,
+		},
+		gvr("storagemigration.k8s.io", "v1", "storageversionmigrations"): {
+			Stub:              `{"metadata": {"name": "test-migration-v1"}, "spec":{"resource": {"group": "test-group", "resource": "test-resource"}}}`,
+			ExpectedEtcdPath:  "/registry/storageversionmigrations/test-migration-v1",
+			ExpectedGVK:       gvkP("storagemigration.k8s.io", "v1beta1", "StorageVersionMigration"),
+			IntroducedVersion: "1.37",
+			StatusStub:        `{"status": {"resourceVersion": "", "conditions": [{"type": "Running", "status": "True", "reason": "MigrationRunning", "message": "Migration is running", "lastTransitionTime": "2020-01-01T00:00:00Z"}]}}`,
+			MutatedStatusStub: `{"status": {"resourceVersion": "1", "conditions": [{"type": "Succeeded", "status": "True", "reason": "MigrationSucceeded", "message": "Migration completed", "lastTransitionTime": "2020-01-01T00:00:00Z"}]}}`,
 		},
 		// --
 
@@ -589,6 +607,12 @@ func GetEtcdStorageDataForNamespaceServedAt(namespace string, v string, isEmulat
 			IntroducedVersion: "1.36",
 			RemovedVersion:    "1.42",
 		},
+		gvr("scheduling.k8s.io", "v1alpha3", "compositepodgroups"): {
+			Stub:              `{"metadata": {"name": "cpg1"}, "spec": {"workloadRef": {"templateName": "t", "workloadName": "w"}, "schedulingPolicy": {"basic": {}}}}`,
+			ExpectedEtcdPath:  "/registry/compositepodgroups/" + namespace + "/cpg1",
+			IntroducedVersion: "1.37",
+			RemovedVersion:    "1.42",
+		},
 		// --
 
 		// k8s.io/kube-aggregator/pkg/apis/apiregistration/v1
@@ -655,6 +679,7 @@ func GetEtcdStorageDataForNamespaceServedAt(namespace string, v string, isEmulat
 			Stub:              `{"metadata": {"name": "taint1name"}, "spec": {"taint": {"key": "example.com/taintkey", "value": "taintvalue", "effect": "NoSchedule"}}}`,
 			MutatedStub:       `{"spec": {"taint": {"effect": "NoExecute"}}}`,
 			ExpectedEtcdPath:  "/registry/devicetaintrules/taint1name",
+			ExpectedGVK:       gvkP("resource.k8s.io", "v1beta2", "DeviceTaintRule"),
 			IntroducedVersion: "1.33",
 			RemovedVersion:    "1.39",
 		},
@@ -720,7 +745,6 @@ func GetEtcdStorageDataForNamespaceServedAt(namespace string, v string, isEmulat
 			Stub:              `{"metadata": {"name": "taint2name"}, "spec": {"taint": {"key": "example.com/taintkey", "value": "taintvalue", "effect": "NoSchedule"}}}`,
 			MutatedStub:       `{"spec": {"taint": {"effect": "NoExecute"}}}`,
 			ExpectedEtcdPath:  "/registry/devicetaintrules/taint2name",
-			ExpectedGVK:       gvkP("resource.k8s.io", "v1alpha3", "DeviceTaintRule"), // v1beta2 has higher priority, but to support downgrades v1alpha3 is picked automatically.
 			IntroducedVersion: "1.36",
 			RemovedVersion:    "1.42",
 		},
@@ -758,6 +782,13 @@ func GetEtcdStorageDataForNamespaceServedAt(namespace string, v string, isEmulat
 			ExpectedEtcdPath:  "/registry/deviceclasses/class4name",
 			ExpectedGVK:       gvkP("resource.k8s.io", "v1", "DeviceClass"),
 			IntroducedVersion: "1.34",
+		},
+		gvr("resource.k8s.io", "v1", "devicetaintrules"): {
+			Stub:              `{"metadata": {"name": "taint4name"}, "spec": {"taint": {"key": "example.com/taintkey", "value": "taintvalue", "effect": "NoSchedule"}}}`,
+			MutatedStub:       `{"spec": {"taint": {"key": "example.com/taintkey", "value": "newtaintvalue", "effect": "NoSchedule"}}}`,
+			ExpectedEtcdPath:  "/registry/devicetaintrules/taint4name",
+			ExpectedGVK:       gvkP("resource.k8s.io", "v1beta2", "DeviceTaintRule"), // v1 has higher priority, but to support downgrades v1beta2 is picked manually in default_storage_factory_builder.go.
+			IntroducedVersion: "1.37",
 		},
 		gvr("resource.k8s.io", "v1", "resourceclaims"): {
 			Stub:              `{"metadata": {"name": "claim4name"}, "spec": {"devices": {"requests": [{"name": "req-0", "exactly": {"deviceClassName": "example-class", "allocationMode": "ExactCount", "count": 1}}]}}}`,

@@ -37,29 +37,29 @@ import (
 type StorageClass struct {
 	metav1.TypeMeta `json:""`
 
-	// Standard object's metadata.
+	// metadata is the standard object metadata.
 	// More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#metadata
 	// +optional
 	metav1.ObjectMeta `json:"metadata,omitempty" protobuf:"bytes,1,opt,name=metadata"`
 
 	// provisioner indicates the type of the provisioner.
 	// +required
-	// +k8s:alpha(since: "1.36")=+k8s:required
-	// +k8s:alpha(since: "1.36")=+k8s:immutable
+	// +k8s:beta(since: "1.37")=+k8s:required
+	// +k8s:beta(since: "1.37")=+k8s:immutable
 	Provisioner string `json:"provisioner" protobuf:"bytes,2,opt,name=provisioner"`
 
 	// parameters holds the parameters for the provisioner that should
 	// create volumes of this storage class.
 	// +optional
-	// +k8s:alpha(since: "1.36")=+k8s:immutable
-	// +k8s:alpha(since: "1.36")=+k8s:optional
+	// +k8s:beta(since: "1.37")=+k8s:immutable
+	// +k8s:beta(since: "1.37")=+k8s:optional
 	Parameters map[string]string `json:"parameters,omitempty" protobuf:"bytes,3,rep,name=parameters"`
 
 	// reclaimPolicy controls the reclaimPolicy for dynamically provisioned PersistentVolumes of this storage class.
 	// Defaults to Delete.
 	// +optional
-	// +k8s:alpha(since: "1.36")=+k8s:immutable
-	// +k8s:alpha(since: "1.36")=+k8s:optional
+	// +k8s:beta(since: "1.37")=+k8s:immutable
+	// +k8s:beta(since: "1.37")=+k8s:optional
 	ReclaimPolicy *v1.PersistentVolumeReclaimPolicy `json:"reclaimPolicy,omitempty" protobuf:"bytes,4,opt,name=reclaimPolicy,casttype=k8s.io/api/core/v1.PersistentVolumeReclaimPolicy"`
 
 	// mountOptions controls the mountOptions for dynamically provisioned PersistentVolumes of this storage class.
@@ -77,8 +77,8 @@ type StorageClass struct {
 	// provisioned and bound.  When unset, VolumeBindingImmediate is used.
 	// This field is only honored by servers that enable the VolumeScheduling feature.
 	// +optional
-	// +k8s:alpha(since: "1.36")=+k8s:immutable
-	// +k8s:alpha(since: "1.36")=+k8s:optional
+	// +k8s:beta(since: "1.37")=+k8s:immutable
+	// +k8s:beta(since: "1.37")=+k8s:optional
 	VolumeBindingMode *VolumeBindingMode `json:"volumeBindingMode,omitempty" protobuf:"bytes,7,opt,name=volumeBindingMode"`
 
 	// allowedTopologies restrict the node topologies where volumes can be dynamically provisioned.
@@ -138,14 +138,14 @@ const (
 type VolumeAttachment struct {
 	metav1.TypeMeta `json:""`
 
-	// Standard object metadata.
+	// metadata is the standard object metadata.
 	// More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#metadata
 	// +optional
 	metav1.ObjectMeta `json:"metadata,omitempty" protobuf:"bytes,1,opt,name=metadata"`
 
 	// spec represents specification of the desired attach/detach volume behavior.
 	// Populated by the Kubernetes system.
-	// +k8s:alpha(since: "1.36")=+k8s:immutable
+	// +k8s:beta(since: "1.37")=+k8s:immutable
 	// +required
 	Spec VolumeAttachmentSpec `json:"spec" protobuf:"bytes,2,opt,name=spec"`
 
@@ -179,9 +179,9 @@ type VolumeAttachmentSpec struct {
 	// attacher indicates the name of the volume driver that MUST handle this
 	// request. This is the name returned by GetPluginName().
 	// +required
-	// +k8s:alpha(since: "1.36")=+k8s:required
-	// +k8s:alpha(since: "1.36")=+k8s:format="k8s-long-name-caseless"
-	// +k8s:alpha(since: "1.36")=+k8s:maxLength=63
+	// +k8s:beta(since: "1.37")=+k8s:required
+	// +k8s:beta(since: "1.37")=+k8s:format="k8s-long-name-caseless"
+	// +k8s:beta(since: "1.37")=+k8s:maxLength=63
 	Attacher string `json:"attacher" protobuf:"bytes,1,opt,name=attacher"`
 
 	// source represents the volume that should be attached.
@@ -277,7 +277,7 @@ type VolumeError struct {
 type CSIDriver struct {
 	metav1.TypeMeta `json:""`
 
-	// Standard object metadata.
+	// metadata is the standard object metadata.
 	// metadata.Name indicates the name of the CSI driver that this object
 	// refers to; it MUST be the same name returned by the CSI GetPluginName()
 	// call for that driver.
@@ -372,6 +372,8 @@ type CSIDriverSpec struct {
 	//
 	// +optional
 	// +listType=atomic
+	// +k8s:alpha(since: "1.37")=+k8s:optional
+	// +k8s:alpha(since: "1.37")=+k8s:immutable
 	VolumeLifecycleModes []VolumeLifecycleMode `json:"volumeLifecycleModes,omitempty" protobuf:"bytes,3,opt,name=volumeLifecycleModes"`
 
 	// storageCapacity indicates that the CSI volume driver wants pod scheduling to consider the storage
@@ -497,7 +499,7 @@ type CSIDriverSpec struct {
 	// +optional
 	ServiceAccountTokenInSecrets *bool `json:"serviceAccountTokenInSecrets,omitempty" protobuf:"varint,10,opt,name=serviceAccountTokenInSecrets"`
 
-	// PreventPodSchedulingIfMissing indicates that the CSI driver wants to prevent pod
+	// preventPodSchedulingIfMissing indicates that the CSI driver wants to prevent pod
 	// scheduling if the CSI driver on the node is missing.
 	//
 	// Enabling this option will prevent the scheduler (or any other
@@ -606,6 +608,7 @@ const (
 type CSINode struct {
 	metav1.TypeMeta `json:""`
 
+	// metadata is the standard object metadata.
 	// metadata.name must be the Kubernetes node name.
 	metav1.ObjectMeta `json:"metadata,omitempty" protobuf:"bytes,1,opt,name=metadata"`
 
@@ -723,7 +726,7 @@ type CSINodeList struct {
 type CSIStorageCapacity struct {
 	metav1.TypeMeta `json:""`
 
-	// Standard object's metadata. The name has no particular meaning. It must be
+	// metadata is the standard object metadata. The name has no particular meaning. It must be
 	// be a DNS subdomain (dots allowed, 253 characters). To ensure that
 	// there are no conflicts with other CSI drivers on the cluster, the recommendation
 	// is to use csisc-<uuid>, a generated name, or a reverse-domain name which ends
@@ -810,12 +813,12 @@ type CSIStorageCapacityList struct {
 type VolumeAttributesClass struct {
 	metav1.TypeMeta `json:""`
 
-	// Standard object's metadata.
+	// metadata is the standard object metadata.
 	// More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#metadata
 	// +optional
 	metav1.ObjectMeta `json:"metadata,omitempty" protobuf:"bytes,1,opt,name=metadata"`
 
-	// Name of the CSI driver
+	// driverName is the name of the CSI driver
 	// This field is immutable.
 	DriverName string `json:"driverName" protobuf:"bytes,2,opt,name=driverName"`
 

@@ -63,6 +63,7 @@ var (
 	itemCannotBeAddedError  = "item may not be added"
 	forbiddenError          = "Forbidden"
 	fieldCannotBeUnsetError = "field cannot be cleared once set"
+	supportedPoliciesError  = `supported values: "Never", "PreemptLowerPriority"`
 )
 
 func TestWorkloadStrategy(t *testing.T) {
@@ -87,10 +88,11 @@ func TestStrategyCreate(t *testing.T) {
 	ctx := ctxWithRequestInfo()
 
 	testCases := map[string]struct {
-		obj                           *scheduling.Workload
-		expectObj                     *scheduling.Workload
-		enableTopologyAwareScheduling bool
-		expectValidationError         string
+		obj                            *scheduling.Workload
+		expectObj                      *scheduling.Workload
+		enableTopologyAwareScheduling  bool
+		enablePodGroupPreemptionPolicy bool
+		expectValidationError          string
 	}{
 		"simple": {
 			obj:       workload,
@@ -213,6 +215,64 @@ func TestStrategyCreate(t *testing.T) {
 			}(),
 			expectValidationError: subdomainNameError,
 		},
+		"drop preemptionPolicy with PodGroupPreemptionPolicy disabled": {
+			obj: func() *scheduling.Workload {
+				w := workload.DeepCopy()
+				policy := scheduling.PreemptNever
+				w.Spec.PodGroupTemplates[0].PreemptionPolicy = &policy
+				return w
+			}(),
+			expectObj: workload,
+		},
+		"drop invalid preemptionPolicy with PodGroupPreemptionPolicy disabled": {
+			obj: func() *scheduling.Workload {
+				w := workload.DeepCopy()
+				policy := scheduling.PreemptionPolicy("Invalid")
+				w.Spec.PodGroupTemplates[0].PreemptionPolicy = &policy
+				return w
+			}(),
+			expectObj: workload,
+		},
+		"preemptionPolicy set (Never) with PodGroupPreemptionPolicy enabled": {
+			obj: func() *scheduling.Workload {
+				w := workload.DeepCopy()
+				policy := scheduling.PreemptNever
+				w.Spec.PodGroupTemplates[0].PreemptionPolicy = &policy
+				return w
+			}(),
+			expectObj: func() *scheduling.Workload {
+				w := workload.DeepCopy()
+				policy := scheduling.PreemptNever
+				w.Spec.PodGroupTemplates[0].PreemptionPolicy = &policy
+				return w
+			}(),
+			enablePodGroupPreemptionPolicy: true,
+		},
+		"preemptionPolicy set (PreemptLowerPriority) with PodGroupPreemptionPolicy enabled": {
+			obj: func() *scheduling.Workload {
+				w := workload.DeepCopy()
+				policy := scheduling.PreemptLowerPriority
+				w.Spec.PodGroupTemplates[0].PreemptionPolicy = &policy
+				return w
+			}(),
+			expectObj: func() *scheduling.Workload {
+				w := workload.DeepCopy()
+				policy := scheduling.PreemptLowerPriority
+				w.Spec.PodGroupTemplates[0].PreemptionPolicy = &policy
+				return w
+			}(),
+			enablePodGroupPreemptionPolicy: true,
+		},
+		"invalid preemptionPolicy with PodGroupPreemptionPolicy enabled": {
+			obj: func() *scheduling.Workload {
+				w := workload.DeepCopy()
+				policy := scheduling.PreemptionPolicy("Invalid")
+				w.Spec.PodGroupTemplates[0].PreemptionPolicy = &policy
+				return w
+			}(),
+			enablePodGroupPreemptionPolicy: true,
+			expectValidationError:          supportedPoliciesError,
+		},
 	}
 
 	for name, tc := range testCases {
@@ -222,6 +282,7 @@ func TestStrategyCreate(t *testing.T) {
 			featuregatetesting.SetFeatureGatesDuringTest(t, utilfeature.DefaultFeatureGate, featuregatetesting.FeatureOverrides{
 				features.GenericWorkload:                 true,
 				features.TopologyAwareWorkloadScheduling: tc.enableTopologyAwareScheduling,
+				features.PodGroupPreemptionPolicy:        tc.enablePodGroupPreemptionPolicy,
 			})
 
 			Strategy.PrepareForCreate(ctx, workload)
@@ -251,11 +312,12 @@ func TestStrategyUpdate(t *testing.T) {
 	ctx := ctxWithRequestInfo()
 
 	testCases := map[string]struct {
-		oldObj                        *scheduling.Workload
-		newObj                        *scheduling.Workload
-		enableTopologyAwareScheduling bool
-		expectValidationErrors        []string
-		expectWorkload                *scheduling.Workload
+		oldObj                         *scheduling.Workload
+		newObj                         *scheduling.Workload
+		enableTopologyAwareScheduling  bool
+		enablePodGroupPreemptionPolicy bool
+		expectValidationErrors         []string
+		expectWorkload                 *scheduling.Workload
 	}{
 		"no changes": {
 			oldObj:         workload,
@@ -484,6 +546,66 @@ func TestStrategyUpdate(t *testing.T) {
 			}(),
 			expectValidationErrors: []string{fieldImmutableError},
 		},
+		"changing preemptionPolicy not allowed with PodGroupPreemptionPolicy disabled": {
+			oldObj: func() *scheduling.Workload {
+				w := workload.DeepCopy()
+				policy := scheduling.PreemptNever
+				w.Spec.PodGroupTemplates[0].PreemptionPolicy = &policy
+				return w
+			}(),
+			newObj: func() *scheduling.Workload {
+				w := workload.DeepCopy()
+				policy := scheduling.PreemptLowerPriority
+				w.Spec.PodGroupTemplates[0].PreemptionPolicy = &policy
+				return w
+			}(),
+			expectValidationErrors: []string{forbiddenError, fieldImmutableError},
+		},
+		"changing preemptionPolicy not allowed with PodGroupPreemptionPolicy enabled": {
+			oldObj: func() *scheduling.Workload {
+				w := workload.DeepCopy()
+				policy := scheduling.PreemptNever
+				w.Spec.PodGroupTemplates[0].PreemptionPolicy = &policy
+				return w
+			}(),
+			newObj: func() *scheduling.Workload {
+				w := workload.DeepCopy()
+				policy := scheduling.PreemptLowerPriority
+				w.Spec.PodGroupTemplates[0].PreemptionPolicy = &policy
+				return w
+			}(),
+			enablePodGroupPreemptionPolicy: true,
+			expectValidationErrors:         []string{fieldImmutableError},
+		},
+		"clearing preemptionPolicy not allowed with PodGroupPreemptionPolicy enabled": {
+			oldObj: func() *scheduling.Workload {
+				w := workload.DeepCopy()
+				policy := scheduling.PreemptNever
+				w.Spec.PodGroupTemplates[0].PreemptionPolicy = &policy
+				return w
+			}(),
+			newObj: func() *scheduling.Workload {
+				w := workload.DeepCopy()
+				w.Spec.PodGroupTemplates[0].PreemptionPolicy = nil
+				return w
+			}(),
+			enablePodGroupPreemptionPolicy: true,
+			expectValidationErrors:         []string{fieldImmutableError},
+		},
+		"clearing preemptionPolicy not allowed with PodGroupPreemptionPolicy disabled": {
+			oldObj: func() *scheduling.Workload {
+				w := workload.DeepCopy()
+				policy := scheduling.PreemptNever
+				w.Spec.PodGroupTemplates[0].PreemptionPolicy = &policy
+				return w
+			}(),
+			newObj: func() *scheduling.Workload {
+				w := workload.DeepCopy()
+				w.Spec.PodGroupTemplates[0].PreemptionPolicy = nil
+				return w
+			}(),
+			expectValidationErrors: []string{fieldImmutableError},
+		},
 	}
 
 	for name, tc := range testCases {
@@ -491,6 +613,7 @@ func TestStrategyUpdate(t *testing.T) {
 			featuregatetesting.SetFeatureGatesDuringTest(t, utilfeature.DefaultFeatureGate, featuregatetesting.FeatureOverrides{
 				features.GenericWorkload:                 true,
 				features.TopologyAwareWorkloadScheduling: tc.enableTopologyAwareScheduling,
+				features.PodGroupPreemptionPolicy:        tc.enablePodGroupPreemptionPolicy,
 			})
 			oldWorkload := tc.oldObj.DeepCopy()
 			newWorkload := tc.newObj.DeepCopy()
@@ -655,6 +778,121 @@ func TestDropPodGroupTemplateResourceClaims(t *testing.T) {
 			}
 
 			if diff := cmp.Diff(wantWorkload, newWorkload); diff != "" {
+				t.Errorf("new Workload changed (- want, + got): %s", diff)
+			}
+		})
+	}
+}
+
+func TestDropCompositePodGroupTemplates(t *testing.T) {
+	var noWorkload *scheduling.Workload
+	workloadWithoutCPG := workload.DeepCopy()
+
+	workloadWithCPG := func() *scheduling.Workload {
+		w := workloadWithoutCPG.DeepCopy()
+		w.Spec.PodGroupTemplates = nil
+		w.Spec.CompositePodGroupTemplates = []scheduling.CompositePodGroupTemplate{
+			{
+				Name: "cpg-template",
+				CompositePodGroupTemplates: []scheduling.CompositePodGroupTemplate{
+					{
+						Name: "child-cpg-template",
+					},
+				},
+				PodGroupTemplates: []scheduling.PodGroupTemplate{
+					{
+						Name: "pg-template",
+					},
+				},
+			},
+		}
+		return w
+	}()
+
+	workloadWithCPGDropped := func() *scheduling.Workload {
+		w := workloadWithCPG.DeepCopy()
+		w.Spec.CompositePodGroupTemplates = nil
+		return w
+	}()
+
+	tests := []struct {
+		description  string
+		enabled      bool
+		oldWorkload  *scheduling.Workload
+		newWorkload  *scheduling.Workload
+		wantWorkload *scheduling.Workload
+	}{
+		{
+			description:  "old with cpg / new with cpg / disabled",
+			enabled:      false,
+			oldWorkload:  workloadWithCPG,
+			newWorkload:  workloadWithCPG,
+			wantWorkload: workloadWithCPG,
+		},
+		{
+			description:  "old with cpg / new with cpg / enabled",
+			enabled:      true,
+			oldWorkload:  workloadWithCPG,
+			newWorkload:  workloadWithCPG,
+			wantWorkload: workloadWithCPG,
+		},
+		{
+			description:  "old without cpg / new with cpg / disabled",
+			enabled:      false,
+			oldWorkload:  workloadWithoutCPG,
+			newWorkload:  workloadWithCPG,
+			wantWorkload: workloadWithCPGDropped,
+		},
+		{
+			description:  "old without cpg / new with cpg / enabled",
+			enabled:      true,
+			oldWorkload:  workloadWithoutCPG,
+			newWorkload:  workloadWithCPG,
+			wantWorkload: workloadWithCPG,
+		},
+		{
+			description:  "old without cpg / new without cpg / disabled",
+			enabled:      false,
+			oldWorkload:  workloadWithoutCPG,
+			newWorkload:  workloadWithoutCPG,
+			wantWorkload: workloadWithoutCPG,
+		},
+		{
+			description:  "old without cpg / new without cpg / enabled",
+			enabled:      true,
+			oldWorkload:  workloadWithoutCPG,
+			newWorkload:  workloadWithoutCPG,
+			wantWorkload: workloadWithoutCPG,
+		},
+		{
+			description:  "nil old / new with cpg / disabled",
+			enabled:      false,
+			oldWorkload:  noWorkload,
+			newWorkload:  workloadWithCPG,
+			wantWorkload: workloadWithCPGDropped,
+		},
+		{
+			description:  "nil old / new with cpg / enabled",
+			enabled:      true,
+			oldWorkload:  noWorkload,
+			newWorkload:  workloadWithCPG,
+			wantWorkload: workloadWithCPG,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.description, func(t *testing.T) {
+			featuregatetesting.SetFeatureGatesDuringTest(t, utilfeature.DefaultFeatureGate, featuregatetesting.FeatureOverrides{
+				features.GenericWorkload:                 true,
+				features.CompositePodGroup:               tc.enabled,
+				features.TopologyAwareWorkloadScheduling: tc.enabled,
+			})
+			var oldSpec *scheduling.WorkloadSpec
+			if tc.oldWorkload != nil {
+				oldSpec = &tc.oldWorkload.Spec
+			}
+			dropDisabledWorkloadSpecFields(&tc.newWorkload.Spec, oldSpec)
+			if diff := cmp.Diff(tc.wantWorkload, tc.newWorkload); diff != "" {
 				t.Errorf("new Workload changed (- want, + got): %s", diff)
 			}
 		})
