@@ -4250,6 +4250,17 @@ func TestValidateVolumes(t *testing.T) {
 				},
 			},
 		}, {
+			name: "valid Secret with defaultUser",
+			vol: core.Volume{
+				Name: "secret",
+				VolumeSource: core.VolumeSource{
+					Secret: &core.SecretVolumeSource{
+						SecretName:  "my-secret",
+						DefaultUser: ptr.To[int64](1001),
+					},
+				},
+			},
+		}, {
 			name: "valid Secret with projection and mode",
 			vol: core.Volume{
 				Name: "secret",
@@ -4260,6 +4271,21 @@ func TestValidateVolumes(t *testing.T) {
 							Key:  "key",
 							Path: "filename",
 							Mode: ptr.To[int32](0644),
+						}},
+					},
+				},
+			},
+		}, {
+			name: "valid Secret with projection and user",
+			vol: core.Volume{
+				Name: "secret",
+				VolumeSource: core.VolumeSource{
+					Secret: &core.SecretVolumeSource{
+						SecretName: "my-secret",
+						Items: []core.KeyToPath{{
+							Key:  "key",
+							Path: "filename",
+							User: ptr.To[int64](1001),
 						}},
 					},
 				},
@@ -4353,6 +4379,74 @@ func TestValidateVolumes(t *testing.T) {
 				etype: field.ErrorTypeInvalid,
 				field: "secret.defaultMode",
 			}},
+		}, {
+			name: "secret with invalid positive defaultUser",
+			vol: core.Volume{
+				Name: "secret",
+				VolumeSource: core.VolumeSource{
+					Secret: &core.SecretVolumeSource{
+						SecretName:  "s",
+						DefaultUser: ptr.To[int64](2147483648),
+					},
+				},
+			},
+			errs: []verr{{
+				etype: field.ErrorTypeInvalid,
+				field: "secret.defaultUser",
+			}},
+		}, {
+			name: "secret with invalid negative defaultUser",
+			vol: core.Volume{
+				Name: "secret",
+				VolumeSource: core.VolumeSource{
+					Secret: &core.SecretVolumeSource{
+						SecretName:  "s",
+						DefaultUser: ptr.To[int64](-1),
+					},
+				},
+			},
+			errs: []verr{{
+				etype: field.ErrorTypeInvalid,
+				field: "secret.defaultUser",
+			}},
+		}, {
+			name: "secret with projection and invalid positive user",
+			vol: core.Volume{
+				Name: "secret",
+				VolumeSource: core.VolumeSource{
+					Secret: &core.SecretVolumeSource{
+						SecretName: "my-secret",
+						Items: []core.KeyToPath{{
+							Key:  "key",
+							Path: "filename",
+							User: ptr.To[int64](2147483648),
+						}},
+					},
+				},
+			},
+			errs: []verr{{
+				etype: field.ErrorTypeInvalid,
+				field: "secret.items[0].user",
+			}},
+		}, {
+			name: "secret with projection and invalid negative user",
+			vol: core.Volume{
+				Name: "secret",
+				VolumeSource: core.VolumeSource{
+					Secret: &core.SecretVolumeSource{
+						SecretName: "my-secret",
+						Items: []core.KeyToPath{{
+							Key:  "key",
+							Path: "filename",
+							User: ptr.To[int64](-1),
+						}},
+					},
+				},
+			},
+			errs: []verr{{
+				etype: field.ErrorTypeInvalid,
+				field: "secret.items[0].user",
+			}},
 		},
 		// ConfigMap
 		{
@@ -4381,6 +4475,19 @@ func TestValidateVolumes(t *testing.T) {
 				},
 			},
 		}, {
+			name: "valid ConfigMap with defaultUser",
+			vol: core.Volume{
+				Name: "cfgmap",
+				VolumeSource: core.VolumeSource{
+					ConfigMap: &core.ConfigMapVolumeSource{
+						LocalObjectReference: core.LocalObjectReference{
+							Name: "my-cfgmap",
+						},
+						DefaultUser: ptr.To[int64](1001),
+					},
+				},
+			},
+		}, {
 			name: "valid ConfigMap with projection and mode",
 			vol: core.Volume{
 				Name: "cfgmap",
@@ -4392,6 +4499,22 @@ func TestValidateVolumes(t *testing.T) {
 							Key:  "key",
 							Path: "filename",
 							Mode: ptr.To[int32](0644),
+						}},
+					},
+				},
+			},
+		}, {
+			name: "valid ConfigMap with projection and user",
+			vol: core.Volume{
+				Name: "cfgmap",
+				VolumeSource: core.VolumeSource{
+					ConfigMap: &core.ConfigMapVolumeSource{
+						LocalObjectReference: core.LocalObjectReference{
+							Name: "my-cfgmap"},
+						Items: []core.KeyToPath{{
+							Key:  "key",
+							Path: "filename",
+							User: ptr.To[int64](1001),
 						}},
 					},
 				},
@@ -4485,6 +4608,76 @@ func TestValidateVolumes(t *testing.T) {
 			errs: []verr{{
 				etype: field.ErrorTypeInvalid,
 				field: "configMap.defaultMode",
+			}},
+		}, {
+			name: "configmap with invalid positive defaultUser",
+			vol: core.Volume{
+				Name: "cfgmap",
+				VolumeSource: core.VolumeSource{
+					ConfigMap: &core.ConfigMapVolumeSource{
+						LocalObjectReference: core.LocalObjectReference{Name: "c"},
+						DefaultUser:          ptr.To[int64](2147483648),
+					},
+				},
+			},
+			errs: []verr{{
+				etype: field.ErrorTypeInvalid,
+				field: "configMap.defaultUser",
+			}},
+		}, {
+			name: "configmap with invalid negative defaultUser",
+			vol: core.Volume{
+				Name: "cfgmap",
+				VolumeSource: core.VolumeSource{
+					ConfigMap: &core.ConfigMapVolumeSource{
+						LocalObjectReference: core.LocalObjectReference{Name: "c"},
+						DefaultUser:          ptr.To[int64](-1),
+					},
+				},
+			},
+			errs: []verr{{
+				etype: field.ErrorTypeInvalid,
+				field: "configMap.defaultUser",
+			}},
+		}, {
+			name: "configMap with projection and invalid positive user",
+			vol: core.Volume{
+				Name: "cfgmap",
+				VolumeSource: core.VolumeSource{
+					ConfigMap: &core.ConfigMapVolumeSource{
+						LocalObjectReference: core.LocalObjectReference{
+							Name: "my-cfgmap"},
+						Items: []core.KeyToPath{{
+							Key:  "key",
+							Path: "filename",
+							User: ptr.To[int64](2147483648),
+						}},
+					},
+				},
+			},
+			errs: []verr{{
+				etype: field.ErrorTypeInvalid,
+				field: "configMap.items[0].user",
+			}},
+		}, {
+			name: "configMap with projection and invalid negative user",
+			vol: core.Volume{
+				Name: "cfgmap",
+				VolumeSource: core.VolumeSource{
+					ConfigMap: &core.ConfigMapVolumeSource{
+						LocalObjectReference: core.LocalObjectReference{
+							Name: "my-cfgmap"},
+						Items: []core.KeyToPath{{
+							Key:  "key",
+							Path: "filename",
+							User: ptr.To[int64](-1),
+						}},
+					},
+				},
+			},
+			errs: []verr{{
+				etype: field.ErrorTypeInvalid,
+				field: "configMap.items[0].user",
 			}},
 		},
 		// Glusterfs
@@ -4884,6 +5077,75 @@ func TestValidateVolumes(t *testing.T) {
 				field: "downwardAPI.mode",
 			}},
 		}, {
+			name: "downapi valid defaultUser",
+			vol: core.Volume{
+				Name: "downapi",
+				VolumeSource: core.VolumeSource{
+					DownwardAPI: &core.DownwardAPIVolumeSource{
+						DefaultUser: ptr.To[int64](1001),
+					},
+				},
+			},
+		}, {
+			name: "downapi valid item user",
+			vol: core.Volume{
+				Name: "downapi",
+				VolumeSource: core.VolumeSource{
+					DownwardAPI: &core.DownwardAPIVolumeSource{
+						Items: []core.DownwardAPIVolumeFile{{
+							User: ptr.To[int64](1001),
+							Path: "path",
+							FieldRef: &core.ObjectFieldSelector{
+								APIVersion: "v1",
+								FieldPath:  "metadata.labels",
+							},
+						}},
+					},
+				},
+			},
+		}, {
+			name: "downapi invalid positive item user",
+			vol: core.Volume{
+				Name: "downapi",
+				VolumeSource: core.VolumeSource{
+					DownwardAPI: &core.DownwardAPIVolumeSource{
+						Items: []core.DownwardAPIVolumeFile{{
+							User: ptr.To[int64](2147483648),
+							Path: "path",
+							FieldRef: &core.ObjectFieldSelector{
+								APIVersion: "v1",
+								FieldPath:  "metadata.labels",
+							},
+						}},
+					},
+				},
+			},
+			errs: []verr{{
+				etype: field.ErrorTypeInvalid,
+				field: "downwardAPI.user",
+			}},
+		}, {
+			name: "downapi invalid negative item user",
+			vol: core.Volume{
+				Name: "downapi",
+				VolumeSource: core.VolumeSource{
+					DownwardAPI: &core.DownwardAPIVolumeSource{
+						Items: []core.DownwardAPIVolumeFile{{
+							User: ptr.To[int64](-1),
+							Path: "path",
+							FieldRef: &core.ObjectFieldSelector{
+								APIVersion: "v1",
+								FieldPath:  "metadata.labels",
+							},
+						}},
+					},
+				},
+			},
+			errs: []verr{{
+				etype: field.ErrorTypeInvalid,
+				field: "downwardAPI.user",
+			}},
+		}, {
 			name: "downapi empty metatada path",
 			vol: core.Volume{
 				Name: "downapi",
@@ -5038,6 +5300,34 @@ func TestValidateVolumes(t *testing.T) {
 			errs: []verr{{
 				etype: field.ErrorTypeInvalid,
 				field: "downwardAPI.defaultMode",
+			}},
+		}, {
+			name: "downapi invalid positive defaultUser",
+			vol: core.Volume{
+				Name: "downapi",
+				VolumeSource: core.VolumeSource{
+					DownwardAPI: &core.DownwardAPIVolumeSource{
+						DefaultUser: ptr.To[int64](2147483648),
+					},
+				},
+			},
+			errs: []verr{{
+				etype: field.ErrorTypeInvalid,
+				field: "downwardAPI.defaultUser",
+			}},
+		}, {
+			name: "downapi invalid negative defaultUser",
+			vol: core.Volume{
+				Name: "downapi",
+				VolumeSource: core.VolumeSource{
+					DownwardAPI: &core.DownwardAPIVolumeSource{
+						DefaultUser: ptr.To[int64](-1),
+					},
+				},
+			},
+			errs: []verr{{
+				etype: field.ErrorTypeInvalid,
+				field: "downwardAPI.defaultUser",
 			}},
 		},
 		// FC
@@ -5464,6 +5754,298 @@ func TestValidateVolumes(t *testing.T) {
 			}, {
 				etype: field.ErrorTypeForbidden,
 				field: "projected.sources[1]",
+			}},
+		}, {
+			name: "ProjectedVolumeSource valid defaultMode",
+			vol: core.Volume{
+				Name: "projected-volume",
+				VolumeSource: core.VolumeSource{
+					Projected: &core.ProjectedVolumeSource{
+						Sources: []core.VolumeProjection{{
+							Secret: &core.SecretProjection{
+								LocalObjectReference: core.LocalObjectReference{
+									Name: "foo",
+								},
+							},
+						}},
+						DefaultMode: ptr.To[int32](0644),
+					},
+				},
+			},
+		}, {
+			name: "ProjectedVolumeSource invalid positive defaultMode",
+			vol: core.Volume{
+				Name: "projected-volume",
+				VolumeSource: core.VolumeSource{
+					Projected: &core.ProjectedVolumeSource{
+						Sources: []core.VolumeProjection{{
+							Secret: &core.SecretProjection{
+								LocalObjectReference: core.LocalObjectReference{
+									Name: "foo",
+								},
+							},
+						}},
+						DefaultMode: ptr.To[int32](01000),
+					},
+				},
+			},
+			errs: []verr{{
+				etype: field.ErrorTypeInvalid,
+				field: "projected.defaultMode",
+			}},
+		}, {
+			name: "ProjectedVolumeSource invalid negative defaultMode",
+			vol: core.Volume{
+				Name: "projected-volume",
+				VolumeSource: core.VolumeSource{
+					Projected: &core.ProjectedVolumeSource{
+						Sources: []core.VolumeProjection{{
+							Secret: &core.SecretProjection{
+								LocalObjectReference: core.LocalObjectReference{
+									Name: "foo",
+								},
+							},
+						}},
+						DefaultMode: ptr.To[int32](-1),
+					},
+				},
+			},
+			errs: []verr{{
+				etype: field.ErrorTypeInvalid,
+				field: "projected.defaultMode",
+			}},
+		}, {
+			name: "ProjectedVolumeSource valid defaultUser",
+			vol: core.Volume{
+				Name: "projected-volume",
+				VolumeSource: core.VolumeSource{
+					Projected: &core.ProjectedVolumeSource{
+						Sources: []core.VolumeProjection{{
+							Secret: &core.SecretProjection{
+								LocalObjectReference: core.LocalObjectReference{
+									Name: "foo",
+								},
+							},
+						}},
+						DefaultUser: ptr.To[int64](1001),
+					},
+				},
+			},
+		}, {
+			name: "ProjectedVolumeSource invalid positive defaultUser",
+			vol: core.Volume{
+				Name: "projected-volume",
+				VolumeSource: core.VolumeSource{
+					Projected: &core.ProjectedVolumeSource{
+						Sources: []core.VolumeProjection{{
+							Secret: &core.SecretProjection{
+								LocalObjectReference: core.LocalObjectReference{
+									Name: "foo",
+								},
+							},
+						}},
+						DefaultUser: ptr.To[int64](2147483648),
+					},
+				},
+			},
+			errs: []verr{{
+				etype: field.ErrorTypeInvalid,
+				field: "projected.defaultUser",
+			}},
+		}, {
+			name: "ProjectedVolumeSource invalid negative defaultUser",
+			vol: core.Volume{
+				Name: "projected-volume",
+				VolumeSource: core.VolumeSource{
+					Projected: &core.ProjectedVolumeSource{
+						Sources: []core.VolumeProjection{{
+							Secret: &core.SecretProjection{
+								LocalObjectReference: core.LocalObjectReference{
+									Name: "foo",
+								},
+							},
+						}},
+						DefaultUser: ptr.To[int64](-1),
+					},
+				},
+			},
+			errs: []verr{{
+				etype: field.ErrorTypeInvalid,
+				field: "projected.defaultUser",
+			}},
+		}, {
+			name: "ProjectedVolumeSource ServiceAccountToken valid user",
+			vol: core.Volume{
+				Name: "projected-volume",
+				VolumeSource: core.VolumeSource{
+					Projected: &core.ProjectedVolumeSource{
+						Sources: []core.VolumeProjection{{
+							ServiceAccountToken: &core.ServiceAccountTokenProjection{
+								Audience:          "foo-audience",
+								ExpirationSeconds: ptr.To[int64](6000),
+								Path:              "foo-path",
+								User:              ptr.To[int64](1001),
+							},
+						}},
+					},
+				},
+			},
+		}, {
+			name: "ProjectedVolumeSource ServiceAccountToken invalid positive user",
+			vol: core.Volume{
+				Name: "projected-volume",
+				VolumeSource: core.VolumeSource{
+					Projected: &core.ProjectedVolumeSource{
+						Sources: []core.VolumeProjection{{
+							ServiceAccountToken: &core.ServiceAccountTokenProjection{
+								Audience:          "foo-audience",
+								ExpirationSeconds: ptr.To[int64](6000),
+								Path:              "foo-path",
+								User:              ptr.To[int64](2147483648),
+							},
+						}},
+					},
+				},
+			},
+			errs: []verr{{
+				etype: field.ErrorTypeInvalid,
+				field: "projected.sources[0].serviceAccountToken.user",
+			}},
+		}, {
+			name: "ProjectedVolumeSource ServiceAccountToken invalid negative user",
+			vol: core.Volume{
+				Name: "projected-volume",
+				VolumeSource: core.VolumeSource{
+					Projected: &core.ProjectedVolumeSource{
+						Sources: []core.VolumeProjection{{
+							ServiceAccountToken: &core.ServiceAccountTokenProjection{
+								Audience:          "foo-audience",
+								ExpirationSeconds: ptr.To[int64](6000),
+								Path:              "foo-path",
+								User:              ptr.To[int64](-1),
+							},
+						}},
+					},
+				},
+			},
+			errs: []verr{{
+				etype: field.ErrorTypeInvalid,
+				field: "projected.sources[0].serviceAccountToken.user",
+			}},
+		}, {
+			name: "ProjectedVolumeSource ClusterTrustBundle valid user",
+			vol: core.Volume{
+				Name: "projected-volume",
+				VolumeSource: core.VolumeSource{
+					Projected: &core.ProjectedVolumeSource{
+						Sources: []core.VolumeProjection{{
+							ClusterTrustBundle: &core.ClusterTrustBundleProjection{
+								Path: "foo-path",
+								Name: new("foo"),
+								User: ptr.To[int64](1001),
+							},
+						}},
+					},
+				},
+			},
+		}, {
+			name: "ProjectedVolumeSource ClusterTrustBundle invalid positive user",
+			vol: core.Volume{
+				Name: "projected-volume",
+				VolumeSource: core.VolumeSource{
+					Projected: &core.ProjectedVolumeSource{
+						Sources: []core.VolumeProjection{{
+							ClusterTrustBundle: &core.ClusterTrustBundleProjection{
+								Path: "foo-path",
+								Name: new("foo"),
+								User: ptr.To[int64](2147483648),
+							},
+						}},
+					},
+				},
+			},
+			errs: []verr{{
+				etype: field.ErrorTypeInvalid,
+				field: "projected.sources[0].clusterTrustBundle.user",
+			}},
+		}, {
+			name: "ProjectedVolumeSource ServiceAccountToken invalid negative user",
+			vol: core.Volume{
+				Name: "projected-volume",
+				VolumeSource: core.VolumeSource{
+					Projected: &core.ProjectedVolumeSource{
+						Sources: []core.VolumeProjection{{
+							ClusterTrustBundle: &core.ClusterTrustBundleProjection{
+								Path: "foo-path",
+								Name: new("foo"),
+								User: ptr.To[int64](-1),
+							},
+						}},
+					},
+				},
+			},
+			errs: []verr{{
+				etype: field.ErrorTypeInvalid,
+				field: "projected.sources[0].clusterTrustBundle.user",
+			}},
+		}, {
+			name: "ProjectedVolumeSource PodCertificate valid user",
+			vol: core.Volume{
+				Name: "projected-volume",
+				VolumeSource: core.VolumeSource{
+					Projected: &core.ProjectedVolumeSource{
+						Sources: []core.VolumeProjection{{
+							PodCertificate: &core.PodCertificateProjection{
+								SignerName:           "example.com/foo",
+								KeyType:              "ED25519",
+								CredentialBundlePath: "credbundle.pem",
+								User:                 ptr.To[int64](1001),
+							},
+						}},
+					},
+				},
+			},
+		}, {
+			name: "ProjectedVolumeSource PodCertificate invalid positive user",
+			vol: core.Volume{
+				Name: "projected-volume",
+				VolumeSource: core.VolumeSource{
+					Projected: &core.ProjectedVolumeSource{
+						Sources: []core.VolumeProjection{{
+							PodCertificate: &core.PodCertificateProjection{
+								SignerName:           "example.com/foo",
+								KeyType:              "ED25519",
+								CredentialBundlePath: "credbundle.pem",
+								User:                 ptr.To[int64](2147483648),
+							},
+						}},
+					},
+				},
+			},
+			errs: []verr{{
+				etype: field.ErrorTypeInvalid,
+				field: "projected.sources[0].podCertificate.user",
+			}},
+		}, {
+			name: "ProjectedVolumeSource ServiceAccountToken invalid negative user",
+			vol: core.Volume{
+				Name: "projected-volume",
+				VolumeSource: core.VolumeSource{
+					Projected: &core.ProjectedVolumeSource{
+						Sources: []core.VolumeProjection{{
+							PodCertificate: &core.PodCertificateProjection{
+								SignerName:           "example.com/foo",
+								KeyType:              "ED25519",
+								CredentialBundlePath: "credbundle.pem",
+								User:                 ptr.To[int64](-1),
+							},
+						}},
+					},
+				},
+			},
+			errs: []verr{{
+				etype: field.ErrorTypeInvalid,
+				field: "projected.sources[0].podCertificate.user",
 			}},
 		},
 		// ImageVolumeSource
@@ -7896,6 +8478,51 @@ func TestValidateHandler(t *testing.T) {
 		if errs := validateHandler(handlerFromProbe(&h), defaultGracePeriod, field.NewPath("field")); len(errs) == 0 {
 			t.Errorf("expected failure for %#v", h)
 		}
+	}
+}
+
+func TestValidateHTTPGetActionProtocol(t *testing.T) {
+	featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.H2CContainerProbe, true)
+
+	http1 := core.HTTPProtocolHTTP1
+	http2 := core.HTTPProtocolHTTP2
+
+	successCases := []core.ProbeHandler{
+		{HTTPGet: &core.HTTPGetAction{Path: "/", Port: intstr.FromInt32(80), Scheme: "HTTP", Protocol: &http1}},
+		{HTTPGet: &core.HTTPGetAction{Path: "/", Port: intstr.FromInt32(80), Scheme: "HTTP", Protocol: &http2}},
+		{HTTPGet: &core.HTTPGetAction{Path: "/health", Port: intstr.FromInt32(8080), Scheme: "HTTPS", Protocol: &http1}},
+		{HTTPGet: &core.HTTPGetAction{Path: "/", Port: intstr.FromInt32(80), Scheme: "HTTP"}},
+	}
+	for _, h := range successCases {
+		if errs := validateHandler(handlerFromProbe(&h), defaultGracePeriod, field.NewPath("field")); len(errs) != 0 {
+			t.Errorf("expected success for %#v, got: %v", h, errs)
+		}
+	}
+
+	badProto := core.HTTPProtocol("SPDY")
+	errorCases := []struct {
+		name    string
+		handler core.ProbeHandler
+	}{
+		{
+			name:    "unsupported protocol value",
+			handler: core.ProbeHandler{HTTPGet: &core.HTTPGetAction{Path: "/", Port: intstr.FromInt32(80), Scheme: "HTTP", Protocol: &badProto}},
+		},
+		{
+			name:    "HTTPS combined with HTTP2 is not supported",
+			handler: core.ProbeHandler{HTTPGet: &core.HTTPGetAction{Path: "/", Port: intstr.FromInt32(443), Scheme: "HTTPS", Protocol: &http2}},
+		},
+		{
+			name:    "HTTP2 with host set is rejected",
+			handler: core.ProbeHandler{HTTPGet: &core.HTTPGetAction{Path: "/", Port: intstr.FromInt32(80), Scheme: "HTTP", Host: "example.com", Protocol: &http2}},
+		},
+	}
+	for _, tc := range errorCases {
+		t.Run(tc.name, func(t *testing.T) {
+			if errs := validateHandler(handlerFromProbe(&tc.handler), defaultGracePeriod, field.NewPath("field")); len(errs) == 0 {
+				t.Errorf("expected failure for %#v", tc.handler)
+			}
+		})
 	}
 }
 
@@ -14779,6 +15406,9 @@ func TestValidatePodUpdate(t *testing.T) {
 }
 
 func TestValidatePodStatusUpdate(t *testing.T) {
+	linuxContainerUserMaxUID := int64(math.MaxUint32)
+	linuxContainerUserInvalidUID := linuxContainerUserMaxUID + 1
+
 	tests := []struct {
 		test                                        string
 		new                                         core.Pod
@@ -15960,7 +16590,7 @@ func TestValidatePodStatusUpdate(t *testing.T) {
 					podtest.SetContainerStatuses(core.ContainerStatus{
 						User: &core.ContainerUser{
 							Linux: &core.LinuxContainerUser{
-								UID:                0,
+								UID:                linuxContainerUserMaxUID,
 								GID:                0,
 								SupplementalGroups: []int64{0, 100},
 							},
@@ -15978,6 +16608,24 @@ func TestValidatePodStatusUpdate(t *testing.T) {
 					podtest.SetContainerStatuses(core.ContainerStatus{
 						User: &core.ContainerUser{
 							Linux: &core.LinuxContainerUser{
+								UID: linuxContainerUserInvalidUID,
+								GID: 0,
+							},
+						},
+					}),
+				),
+			),
+		),
+		old:  *podtest.MakePod("foo"),
+		err:  `status.containerStatuses[0].user.linux.uid: Invalid value: 4294967296: must be between 0 and 4294967295, inclusive`,
+		test: "containerUser with uid above linux range in containerStatuses",
+	}, {
+		new: *podtest.MakePod("foo",
+			podtest.SetStatus(
+				podtest.MakePodStatus(
+					podtest.SetContainerStatuses(core.ContainerStatus{
+						User: &core.ContainerUser{
+							Linux: &core.LinuxContainerUser{
 								UID:                -1,
 								GID:                -1,
 								SupplementalGroups: []int64{-1},
@@ -15988,7 +16636,7 @@ func TestValidatePodStatusUpdate(t *testing.T) {
 			),
 		),
 		old: *podtest.MakePod("foo"),
-		err: `status.containerStatuses[0].user.linux.uid: Invalid value: -1: must be between 0 and 2147483647, inclusive` +
+		err: `status.containerStatuses[0].user.linux.uid: Invalid value: -1: must be between 0 and 4294967295, inclusive` +
 			`, status.containerStatuses[0].user.linux.gid: Invalid value: -1: must be between 0 and 2147483647, inclusive` +
 			`, status.containerStatuses[0].user.linux.supplementalGroups[0]: Invalid value: -1: must be between 0 and 2147483647, inclusive`,
 		test: "containerUser with invalid uids/gids/supplementalGroups in containerStatuses",
@@ -16039,7 +16687,7 @@ func TestValidatePodStatusUpdate(t *testing.T) {
 					podtest.SetInitContainerStatuses(core.ContainerStatus{
 						User: &core.ContainerUser{
 							Linux: &core.LinuxContainerUser{
-								UID:                0,
+								UID:                linuxContainerUserMaxUID,
 								GID:                0,
 								SupplementalGroups: []int64{0, 100},
 							},
@@ -16067,7 +16715,7 @@ func TestValidatePodStatusUpdate(t *testing.T) {
 			),
 		),
 		old: *podtest.MakePod("foo"),
-		err: `status.initContainerStatuses[0].user.linux.uid: Invalid value: -1: must be between 0 and 2147483647, inclusive` +
+		err: `status.initContainerStatuses[0].user.linux.uid: Invalid value: -1: must be between 0 and 4294967295, inclusive` +
 			`, status.initContainerStatuses[0].user.linux.gid: Invalid value: -1: must be between 0 and 2147483647, inclusive` +
 			`, status.initContainerStatuses[0].user.linux.supplementalGroups[0]: Invalid value: -1: must be between 0 and 2147483647, inclusive`,
 		test: "containerUser with invalid uids/gids/supplementalGroups in initContainerStatuses",
@@ -16118,7 +16766,7 @@ func TestValidatePodStatusUpdate(t *testing.T) {
 					podtest.SetEphemeralContainerStatuses(core.ContainerStatus{
 						User: &core.ContainerUser{
 							Linux: &core.LinuxContainerUser{
-								UID:                0,
+								UID:                linuxContainerUserMaxUID,
 								GID:                0,
 								SupplementalGroups: []int64{0, 100},
 							},
@@ -16146,7 +16794,7 @@ func TestValidatePodStatusUpdate(t *testing.T) {
 			),
 		),
 		old: *podtest.MakePod("foo"),
-		err: `status.ephemeralContainerStatuses[0].user.linux.uid: Invalid value: -1: must be between 0 and 2147483647, inclusive` +
+		err: `status.ephemeralContainerStatuses[0].user.linux.uid: Invalid value: -1: must be between 0 and 4294967295, inclusive` +
 			`, status.ephemeralContainerStatuses[0].user.linux.gid: Invalid value: -1: must be between 0 and 2147483647, inclusive` +
 			`, status.ephemeralContainerStatuses[0].user.linux.supplementalGroups[0]: Invalid value: -1: must be between 0 and 2147483647, inclusive`,
 		test: "containerUser with invalid uids/gids/supplementalGroups in ephemeralContainerStatuses",
@@ -22157,6 +22805,83 @@ func TestValidatePersistentVolumeClaimStatusUpdate(t *testing.T) {
 	}
 }
 
+func TestValidatePodVolumeHealth(t *testing.T) {
+	podSpec := &core.PodSpec{
+		Volumes: []core.Volume{
+			{Name: "vol1"},
+			{Name: "vol2"},
+		},
+	}
+	tests := []struct {
+		name         string
+		volumeHealth []core.PodVolumeHealth
+		isErr        bool
+		expectedErr  string
+	}{
+		{
+			name: "valid volume health",
+			volumeHealth: []core.PodVolumeHealth{
+				{
+					Name: "vol1",
+					HealthConditions: []core.VolumeHealthCondition{
+						{Status: core.VolumeHealthDegraded, Reason: "DiskSlow"},
+					},
+				},
+			},
+		},
+		{
+			name: "volume name not in spec",
+			volumeHealth: []core.PodVolumeHealth{
+				{
+					Name: "nonexistent",
+					HealthConditions: []core.VolumeHealthCondition{
+						{Status: core.VolumeHealthDegraded, Reason: "DiskSlow"},
+					},
+				},
+			},
+			isErr:       true,
+			expectedErr: "volumeHealth[0].name",
+		},
+		{
+			name: "invalid reason format",
+			volumeHealth: []core.PodVolumeHealth{
+				{
+					Name: "vol1",
+					HealthConditions: []core.VolumeHealthCondition{
+						{Status: core.VolumeHealthDegraded, Reason: "invalid;val"},
+					},
+				},
+			},
+			isErr:       true,
+			expectedErr: "volumeHealth[0].healthConditions[0].reason",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			errs := validatePodVolumeHealth(tt.volumeHealth, podSpec, field.NewPath("volumeHealth"))
+			if tt.isErr && len(errs) == 0 {
+				t.Errorf("expected error but got none")
+			}
+			if !tt.isErr && len(errs) > 0 {
+				t.Errorf("unexpected errors: %v", errs)
+			}
+			if tt.isErr && len(errs) > 0 && tt.expectedErr != "" {
+				found := false
+				for _, err := range errs {
+					if strings.Contains(err.Field, tt.expectedErr) {
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Errorf("expected error containing %q but got: %v", tt.expectedErr, errs)
+				}
+			}
+		})
+	}
+}
+
 func TestValidateResourceQuota(t *testing.T) {
 	spec := core.ResourceQuotaSpec{
 		Hard: core.ResourceList{
@@ -23837,20 +24562,27 @@ func TestValidateSecurityContext(t *testing.T) {
 	procMountUnmasked := fullValidSC()
 	procMountUnmasked.ProcMount = &umPmt
 
+	sysAdminPriv := fullValidSC()
+	sysAdminPriv.Capabilities = &core.Capabilities{
+		Add: []core.Capability{"CAP_SYS_ADMIN"},
+	}
+
 	successCases := map[string]struct {
-		sc        *core.SecurityContext
-		hostUsers bool
+		sc            *core.SecurityContext
+		hostUsers     bool
+		allowSysAdmin bool
 	}{
-		"all settings":        {allSettings, false},
-		"no capabilities":     {noCaps, false},
-		"no selinux":          {noSELinux, false},
-		"no priv request":     {noPrivRequest, false},
-		"no run as user":      {noRunAsUser, false},
-		"proc mount set":      {procMountSet, true},
-		"proc mount unmasked": {procMountUnmasked, false},
+		"all settings":                           {allSettings, false, false},
+		"no capabilities":                        {noCaps, false, false},
+		"no selinux":                             {noSELinux, false, false},
+		"no priv request":                        {noPrivRequest, false, false},
+		"no run as user":                         {noRunAsUser, false, false},
+		"proc mount set":                         {procMountSet, true, false},
+		"proc mount unmasked":                    {procMountUnmasked, false, false},
+		"sys admin without privilege escalation": {sysAdminPriv, false, true},
 	}
 	for k, v := range successCases {
-		if errs := ValidateSecurityContext(v.sc, field.NewPath("field"), v.hostUsers); len(errs) != 0 {
+		if errs := ValidateSecurityContext(v.sc, field.NewPath("field"), v.hostUsers, v.allowSysAdmin); len(errs) != 0 {
 			t.Errorf("[%s] Expected success, got %v", k, errs)
 		}
 	}
@@ -23910,7 +24642,7 @@ func TestValidateSecurityContext(t *testing.T) {
 		})
 		// note the unconditional `true` here for hostUsers. The failure case to test for ProcMount only includes it being true,
 		// and the field is ignored if ProcMount isn't set. Thus, we can unconditionally set to `true` and simplify the test matrix setup.
-		if errs := ValidateSecurityContext(v.sc, field.NewPath("field"), true); len(errs) == 0 || errs[0].Type != v.errorType || !strings.Contains(errs[0].Detail, v.errorDetail) {
+		if errs := ValidateSecurityContext(v.sc, field.NewPath("field"), true, false); len(errs) == 0 || errs[0].Type != v.errorType || !strings.Contains(errs[0].Detail, v.errorDetail) {
 			t.Errorf("[%s] Expected error type %q with detail %q, got %v", k, v.errorType, v.errorDetail, errs)
 		}
 	}
@@ -28498,12 +29230,18 @@ func TestValidatePodResize(t *testing.T) {
 			}))
 	}
 
+	quantityPtr := func(val string) *resource.Quantity {
+		q := resource.MustParse(val)
+		return &q
+	}
+
 	tests := []struct {
-		test                 string
-		old                  *core.Pod
-		new                  *core.Pod
-		disableInitCtrResize bool
-		err                  string
+		test                            string
+		old                             *core.Pod
+		new                             *core.Pod
+		disableInitCtrResize            bool
+		enableMemoryBackedVolumesResize bool
+		err                             string
 	}{
 		{
 			test: "pod-level resources resize with nil resources in old pod",
@@ -28965,6 +29703,7 @@ func TestValidatePodResize(t *testing.T) {
 			disableInitCtrResize: true,
 			err:                  "Forbidden: resources for non-sidecar init containers are immutable",
 		},
+
 		{
 			test: "Pod with nil Resource field in Status",
 			old: mkPod(core.ResourceList{}, getResources("100m", "0", "1Gi", ""), podtest.SetStatus(core.PodStatus{
@@ -29241,11 +29980,358 @@ func TestValidatePodResize(t *testing.T) {
 			}(),
 			err: "spec: Forbidden: pods with node allocatable resource claims cannot be resized",
 		},
+		{
+			test: "volumes immutable on resize when FG disabled",
+			old: mkPod(core.ResourceList{}, core.ResourceList{}, func(pod *core.Pod) {
+				pod.Spec.Volumes = []core.Volume{
+					{
+						Name: "vol-1",
+						VolumeSource: core.VolumeSource{
+							EmptyDir: &core.EmptyDirVolumeSource{
+								Medium:    core.StorageMediumMemory,
+								SizeLimit: quantityPtr("100Mi"),
+							},
+						},
+					},
+				}
+			}),
+			new: mkPod(core.ResourceList{}, core.ResourceList{}, func(pod *core.Pod) {
+				pod.Spec.Volumes = []core.Volume{
+					{
+						Name: "vol-1",
+						VolumeSource: core.VolumeSource{
+							EmptyDir: &core.EmptyDirVolumeSource{
+								Medium:    core.StorageMediumMemory,
+								SizeLimit: quantityPtr("200Mi"),
+							},
+						},
+					},
+				}
+			}),
+			enableMemoryBackedVolumesResize: false,
+			err:                             "spec.volumes: Forbidden: volumes are immutable on resize when InPlacePodVerticalScalingMemoryBackedVolumes feature gate is disabled",
+		},
+		{
+			test: "valid emptyDir memory-backed sizeLimit mutation when FG enabled",
+			old: mkPod(core.ResourceList{}, core.ResourceList{}, func(pod *core.Pod) {
+				pod.Spec.Volumes = []core.Volume{
+					{
+						Name: "vol-1",
+						VolumeSource: core.VolumeSource{
+							EmptyDir: &core.EmptyDirVolumeSource{
+								Medium:    core.StorageMediumMemory,
+								SizeLimit: quantityPtr("100Mi"),
+							},
+						},
+					},
+				}
+			}),
+			new: mkPod(core.ResourceList{}, core.ResourceList{}, func(pod *core.Pod) {
+				pod.Spec.Volumes = []core.Volume{
+					{
+						Name: "vol-1",
+						VolumeSource: core.VolumeSource{
+							EmptyDir: &core.EmptyDirVolumeSource{
+								Medium:    core.StorageMediumMemory,
+								SizeLimit: quantityPtr("200Mi"),
+							},
+						},
+					},
+				}
+			}),
+			enableMemoryBackedVolumesResize: true,
+			err:                             "",
+		},
+		{
+			test: "invalid emptyDir default-medium sizeLimit mutation",
+			old: mkPod(core.ResourceList{}, core.ResourceList{}, func(pod *core.Pod) {
+				pod.Spec.Volumes = []core.Volume{
+					{
+						Name: "vol-1",
+						VolumeSource: core.VolumeSource{
+							EmptyDir: &core.EmptyDirVolumeSource{
+								Medium:    core.StorageMediumDefault,
+								SizeLimit: quantityPtr("100Mi"),
+							},
+						},
+					},
+				}
+			}),
+			new: mkPod(core.ResourceList{}, core.ResourceList{}, func(pod *core.Pod) {
+				pod.Spec.Volumes = []core.Volume{
+					{
+						Name: "vol-1",
+						VolumeSource: core.VolumeSource{
+							EmptyDir: &core.EmptyDirVolumeSource{
+								Medium:    core.StorageMediumDefault,
+								SizeLimit: quantityPtr("200Mi"),
+							},
+						},
+					},
+				}
+			}),
+			enableMemoryBackedVolumesResize: true,
+			err:                             "spec.volumes[0].emptyDir.sizeLimit: Forbidden: sizeLimit is only mutable for memory-backed emptyDir volumes",
+		},
+		{
+			test: "invalid volume addition on resize",
+			old: mkPod(core.ResourceList{}, core.ResourceList{}, func(pod *core.Pod) {
+				pod.Spec.Volumes = []core.Volume{
+					{
+						Name: "vol-1",
+						VolumeSource: core.VolumeSource{
+							EmptyDir: &core.EmptyDirVolumeSource{
+								Medium:    core.StorageMediumMemory,
+								SizeLimit: quantityPtr("100Mi"),
+							},
+						},
+					},
+				}
+			}),
+			new: mkPod(core.ResourceList{}, core.ResourceList{}, func(pod *core.Pod) {
+				pod.Spec.Volumes = []core.Volume{
+					{
+						Name: "vol-1",
+						VolumeSource: core.VolumeSource{
+							EmptyDir: &core.EmptyDirVolumeSource{
+								Medium:    core.StorageMediumMemory,
+								SizeLimit: quantityPtr("100Mi"),
+							},
+						},
+					},
+					{
+						Name: "vol-2",
+						VolumeSource: core.VolumeSource{
+							EmptyDir: &core.EmptyDirVolumeSource{
+								Medium:    core.StorageMediumMemory,
+								SizeLimit: quantityPtr("100Mi"),
+							},
+						},
+					},
+				}
+			}),
+			enableMemoryBackedVolumesResize: true,
+			err:                             "spec.volumes: Forbidden: volumes may not be added or removed on resize",
+		},
+		{
+			test: "invalid volume removal on resize",
+			old: mkPod(core.ResourceList{}, core.ResourceList{}, func(pod *core.Pod) {
+				pod.Spec.Volumes = []core.Volume{
+					{
+						Name: "vol-1",
+						VolumeSource: core.VolumeSource{
+							EmptyDir: &core.EmptyDirVolumeSource{
+								Medium:    core.StorageMediumMemory,
+								SizeLimit: quantityPtr("100Mi"),
+							},
+						},
+					},
+				}
+			}),
+			new: mkPod(core.ResourceList{}, core.ResourceList{}, func(pod *core.Pod) {
+				pod.Spec.Volumes = []core.Volume{}
+			}),
+			enableMemoryBackedVolumesResize: true,
+			err:                             "spec.volumes: Forbidden: volumes may not be added or removed on resize",
+		},
+		{
+			test: "invalid volume rename on resize",
+			old: mkPod(core.ResourceList{}, core.ResourceList{}, func(pod *core.Pod) {
+				pod.Spec.Volumes = []core.Volume{
+					{
+						Name: "vol-1",
+						VolumeSource: core.VolumeSource{
+							EmptyDir: &core.EmptyDirVolumeSource{
+								Medium:    core.StorageMediumMemory,
+								SizeLimit: quantityPtr("100Mi"),
+							},
+						},
+					},
+				}
+			}),
+			new: mkPod(core.ResourceList{}, core.ResourceList{}, func(pod *core.Pod) {
+				pod.Spec.Volumes = []core.Volume{
+					{
+						Name: "vol-2",
+						VolumeSource: core.VolumeSource{
+							EmptyDir: &core.EmptyDirVolumeSource{
+								Medium:    core.StorageMediumMemory,
+								SizeLimit: quantityPtr("100Mi"),
+							},
+						},
+					},
+				}
+			}),
+			enableMemoryBackedVolumesResize: true,
+			err:                             "spec.volumes[0].name: Forbidden: volumes may not be renamed or reordered on resize",
+		},
+		{
+			test: "invalid field mutation other than sizeLimit",
+			old: mkPod(core.ResourceList{}, core.ResourceList{}, func(pod *core.Pod) {
+				pod.Spec.Volumes = []core.Volume{
+					{
+						Name: "vol-1",
+						VolumeSource: core.VolumeSource{
+							EmptyDir: &core.EmptyDirVolumeSource{
+								Medium:    core.StorageMediumMemory,
+								SizeLimit: quantityPtr("100Mi"),
+							},
+						},
+					},
+				}
+			}),
+			new: mkPod(core.ResourceList{}, core.ResourceList{}, func(pod *core.Pod) {
+				pod.Spec.Volumes = []core.Volume{
+					{
+						Name: "vol-1",
+						VolumeSource: core.VolumeSource{
+							EmptyDir: &core.EmptyDirVolumeSource{
+								Medium:    core.StorageMediumDefault,
+								SizeLimit: quantityPtr("100Mi"),
+							},
+						},
+					},
+				}
+			}),
+			enableMemoryBackedVolumesResize: true,
+			err:                             "spec.volumes[0]: Forbidden: only sizeLimit of memory-backed emptyDir volumes is mutable on resize",
+		},
+		{
+			test: "invalid addition of sizeLimit on resize",
+			old: mkPod(core.ResourceList{}, core.ResourceList{}, func(pod *core.Pod) {
+				pod.Spec.Volumes = []core.Volume{
+					{
+						Name: "vol-1",
+						VolumeSource: core.VolumeSource{
+							EmptyDir: &core.EmptyDirVolumeSource{
+								Medium:    core.StorageMediumMemory,
+								SizeLimit: nil,
+							},
+						},
+					},
+				}
+			}),
+			new: mkPod(core.ResourceList{}, core.ResourceList{}, func(pod *core.Pod) {
+				pod.Spec.Volumes = []core.Volume{
+					{
+						Name: "vol-1",
+						VolumeSource: core.VolumeSource{
+							EmptyDir: &core.EmptyDirVolumeSource{
+								Medium:    core.StorageMediumMemory,
+								SizeLimit: quantityPtr("100Mi"),
+							},
+						},
+					},
+				}
+			}),
+			enableMemoryBackedVolumesResize: true,
+			err:                             "spec.volumes[0].emptyDir.sizeLimit: Forbidden: adding or removing sizeLimit on an existing volume is not allowed",
+		},
+		{
+			test: "invalid removal of sizeLimit on resize",
+			old: mkPod(core.ResourceList{}, core.ResourceList{}, func(pod *core.Pod) {
+				pod.Spec.Volumes = []core.Volume{
+					{
+						Name: "vol-1",
+						VolumeSource: core.VolumeSource{
+							EmptyDir: &core.EmptyDirVolumeSource{
+								Medium:    core.StorageMediumMemory,
+								SizeLimit: quantityPtr("100Mi"),
+							},
+						},
+					},
+				}
+			}),
+			new: mkPod(core.ResourceList{}, core.ResourceList{}, func(pod *core.Pod) {
+				pod.Spec.Volumes = []core.Volume{
+					{
+						Name: "vol-1",
+						VolumeSource: core.VolumeSource{
+							EmptyDir: &core.EmptyDirVolumeSource{
+								Medium:    core.StorageMediumMemory,
+								SizeLimit: nil,
+							},
+						},
+					},
+				}
+			}),
+			enableMemoryBackedVolumesResize: true,
+			err:                             "spec.volumes[0].emptyDir.sizeLimit: Forbidden: adding or removing sizeLimit on an existing volume is not allowed",
+		},
+		{
+			test: "invalid transition from non-zero to zero limit on resize",
+			old: mkPod(core.ResourceList{}, core.ResourceList{}, func(pod *core.Pod) {
+				pod.Spec.Volumes = []core.Volume{
+					{
+						Name: "vol-1",
+						VolumeSource: core.VolumeSource{
+							EmptyDir: &core.EmptyDirVolumeSource{
+								Medium:    core.StorageMediumMemory,
+								SizeLimit: quantityPtr("100Mi"),
+							},
+						},
+					},
+				}
+			}),
+			new: mkPod(core.ResourceList{}, core.ResourceList{}, func(pod *core.Pod) {
+				pod.Spec.Volumes = []core.Volume{
+					{
+						Name: "vol-1",
+						VolumeSource: core.VolumeSource{
+							EmptyDir: &core.EmptyDirVolumeSource{
+								Medium:    core.StorageMediumMemory,
+								SizeLimit: quantityPtr("0"),
+							},
+						},
+					},
+				}
+			}),
+			enableMemoryBackedVolumesResize: true,
+			err:                             "spec.volumes[0].emptyDir.sizeLimit: Forbidden: adding or removing sizeLimit on an existing volume is not allowed",
+		},
+		{
+			test: "invalid transition from zero to non-zero limit on resize",
+			old: mkPod(core.ResourceList{}, core.ResourceList{}, func(pod *core.Pod) {
+				pod.Spec.Volumes = []core.Volume{
+					{
+						Name: "vol-1",
+						VolumeSource: core.VolumeSource{
+							EmptyDir: &core.EmptyDirVolumeSource{
+								Medium:    core.StorageMediumMemory,
+								SizeLimit: quantityPtr("0"),
+							},
+						},
+					},
+				}
+			}),
+			new: mkPod(core.ResourceList{}, core.ResourceList{}, func(pod *core.Pod) {
+				pod.Spec.Volumes = []core.Volume{
+					{
+						Name: "vol-1",
+						VolumeSource: core.VolumeSource{
+							EmptyDir: &core.EmptyDirVolumeSource{
+								Medium:    core.StorageMediumMemory,
+								SizeLimit: quantityPtr("100Mi"),
+							},
+						},
+					},
+				}
+			}),
+			enableMemoryBackedVolumesResize: true,
+			err:                             "spec.volumes[0].emptyDir.sizeLimit: Forbidden: adding or removing sizeLimit on an existing volume is not allowed",
+		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.test, func(t *testing.T) {
-			featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.InPlacePodVerticalScalingInitContainers, !test.disableInitCtrResize)
+			if test.disableInitCtrResize {
+				featuregatetesting.SetFeatureGateEmulationVersionDuringTest(t, utilfeature.DefaultFeatureGate, version.MustParse("1.36"))
+				featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.InPlacePodVerticalScalingInitContainers, false)
+			} else {
+				// This is in an else block because we cannot set the InPlacePodVerticalScalingMemoryBackedVolumes feature gate
+				// when we are emulating v1.36 (which does not have it)
+				featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.InPlacePodVerticalScalingMemoryBackedVolumes, test.enableMemoryBackedVolumesResize)
+			}
 
 			test.new.ObjectMeta.ResourceVersion = "1"
 			test.old.ObjectMeta.ResourceVersion = "1"
@@ -29272,7 +30358,12 @@ func TestValidatePodResize(t *testing.T) {
 				test.old.Spec.RestartPolicy = "Always"
 			}
 
-			errs := ValidatePodResize(test.new, test.old, PodValidationOptions{AllowSidecarResizePolicy: true, InPlacePodLevelResourcesVerticalScalingEnabled: true, PodLevelResourcesEnabled: true})
+			errs := ValidatePodResize(test.new, test.old, PodValidationOptions{
+				AllowSidecarResizePolicy:                            true,
+				InPlacePodLevelResourcesVerticalScalingEnabled:      true,
+				PodLevelResourcesEnabled:                            true,
+				InPlacePodVerticalScalingMemoryBackedVolumesEnabled: test.enableMemoryBackedVolumesResize,
+			})
 
 			if test.err == "" {
 				if len(errs) != 0 {

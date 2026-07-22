@@ -29,12 +29,6 @@ var (
 	// TODO: document the feature (when to use this feature for a test)
 	APIServerIdentity = framework.WithFeature(framework.ValidFeatures.Add("APIServerIdentity"))
 
-	// Owner: sig-lifecycle
-	// This label is used for tests which need the following controllers to be enabled:
-	// - bootstrap-signer-controller
-	// - token-cleaner-controller
-	BootstrapTokens = framework.WithFeature(framework.ValidFeatures.Add("BootstrapTokens"))
-
 	// Owner: sig-auth
 	// TODO: document the feature (when to use this feature for a test)
 	BoundServiceAccountTokenVolume = framework.WithFeature(framework.ValidFeatures.Add("BoundServiceAccountTokenVolume"))
@@ -209,11 +203,6 @@ var (
 	// InPlacePodVerticalScaling is used for testing in-place pod vertical scaling (https://kep.k8s.io/1287).
 	InPlacePodVerticalScaling = framework.WithFeature(framework.ValidFeatures.Add("InPlacePodVerticalScaling"))
 
-	// Owner: sig-network
-	// Marks tests that require a conforming implementation of
-	// Ingress.networking.k8s.io to be present.
-	Ingress = framework.WithFeature(framework.ValidFeatures.Add("Ingress"))
-
 	// Owner: sig-storage
 	// Marks tests that only work with a sigs.k8s.io/kind cluster
 	Kind = framework.WithFeature(framework.ValidFeatures.Add("Kind"))
@@ -221,18 +210,6 @@ var (
 	// Owner: sig-network
 	// Marks tests that require kube-dns-autoscaler
 	KubeDNSAutoscaler = framework.WithFeature(framework.ValidFeatures.Add("KubeDNSAutoscaler"))
-
-	// Owner: sig-network
-	// TODO: document the feature (when to use this feature for a test)
-	KubeProxyDaemonSetDowngrade = framework.WithFeature(framework.ValidFeatures.Add("KubeProxyDaemonSetDowngrade"))
-
-	// Owner: sig-network
-	// TODO: document the feature (when to use this feature for a test)
-	KubeProxyDaemonSetMigration = framework.WithFeature(framework.ValidFeatures.Add("KubeProxyDaemonSetMigration"))
-
-	// Owner: sig-network
-	// TODO: document the feature (when to use this feature for a test)
-	KubeProxyDaemonSetUpgrade = framework.WithFeature(framework.ValidFeatures.Add("KubeProxyDaemonSetUpgrade"))
 
 	// Owner: sig-network
 	// Marks tests that require the kernel to have support for the nfacct subsystem.
@@ -265,6 +242,10 @@ var (
 	// Owner: sig-node
 	// TODO: document the feature (when to use this feature for a test)
 	LocalStorageCapacityIsolationQuota = framework.WithFeature(framework.ValidFeatures.Add("LocalStorageCapacityIsolationQuota"))
+
+	// Owner: sig-network
+	// Marks tests that require the service proxy to support localhost NodePort services
+	LocalhostNodePorts = framework.WithFeature(framework.ValidFeatures.Add("LocalhostNodePorts"))
 
 	// owning-sig: sig-node
 	// Marks a disruptive test for lock contention
@@ -415,14 +396,6 @@ var (
 	// make test-e2e-node PARALLELISM=1 FOCUS="StandaloneMode" TEST_ARGS='--kubelet-flags="--fail-swap-on=false" --standalone-mode=true'
 	// Tests validating the behavior of kubelet when running without the API server.
 	StandaloneMode = framework.WithFeature(framework.ValidFeatures.Add("StandaloneMode"))
-
-	// Owner: sig-apps
-	// TODO: document the feature (when to use this feature for a test)
-	StatefulSet = framework.WithFeature(framework.ValidFeatures.Add("StatefulSet"))
-
-	// Owner: sig-apps
-	// TODO: document the feature (when to use this feature for a test)
-	StatefulUpgrade = framework.WithFeature(framework.ValidFeatures.Add("StatefulUpgrade"))
 
 	// Owner: sig-storage
 	// Tests marked with this feature exercise scheduling behavior that scores nodes based on CSI storage capacity.

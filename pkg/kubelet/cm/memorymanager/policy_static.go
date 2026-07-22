@@ -38,6 +38,7 @@ import (
 	cmqos "k8s.io/kubernetes/pkg/kubelet/cm/qos"
 	"k8s.io/kubernetes/pkg/kubelet/cm/topologymanager"
 	"k8s.io/kubernetes/pkg/kubelet/cm/topologymanager/bitmask"
+	"k8s.io/kubernetes/pkg/kubelet/lifecycle"
 	"k8s.io/kubernetes/pkg/kubelet/metrics"
 )
 
@@ -180,11 +181,14 @@ func (p *staticPolicy) validatePodScopeResources(logger klog.Logger, pod *v1.Pod
 // It's called once per pod by the Topology Manager's pod-scope admit handler.
 // The logic here allocates a single NUMA-aligned "bubble" of memory for the
 // entire pod. All containers within the pod will share this NUMA binding.
-func (p *staticPolicy) AllocatePod(logger klog.Logger, s state.State, pod *v1.Pod) (rerr error) {
-	podUID := string(pod.UID)
-	logger = klog.LoggerWithValues(logger, "pod", klog.KObj(pod))
+func (p *staticPolicy) AllocatePod(logger klog.Logger, s state.State, pod *v1.Pod, operation lifecycle.Operation) (rerr error) {
+	logger = klog.LoggerWithValues(logger, "pod", klog.KObj(pod), "operation", operation)
 	logger.V(4).Info("AllocatePod called for pod-level managed pod")
-
+	if operation != lifecycle.AddOperation {
+		logger.V(2).Info("Pod-level memory allocation skipped, memory manager with static policy supports only add operation")
+		return nil
+	}
+	podUID := string(pod.UID)
 	qos := v1qos.GetPodQOS(pod)
 	if qos != v1.PodQOSGuaranteed {
 		return nil
@@ -421,9 +425,14 @@ func memoryBlocksToString(blocks []state.Block) string {
 }
 
 // Allocate call is idempotent
-func (p *staticPolicy) Allocate(ctx context.Context, s state.State, pod *v1.Pod, container *v1.Container) (rerr error) {
+func (p *staticPolicy) Allocate(ctx context.Context, s state.State, pod *v1.Pod, container *v1.Container, operation lifecycle.Operation) (rerr error) {
 	// allocate the memory only for guaranteed pods
-	logger := klog.LoggerWithValues(klog.FromContext(ctx), "pod", klog.KObj(pod), "containerName", container.Name)
+	logger := klog.LoggerWithValues(klog.FromContext(ctx), "pod", klog.KObj(pod), "containerName", container.Name, "operation", operation)
+
+	if operation != lifecycle.AddOperation {
+		logger.V(2).Info("Container-level memory allocation skipped, Memory manager with static policy supports only add operation")
+		return nil
+	}
 
 	podUID := string(pod.UID)
 	// Allocate the memory only for guaranteed pods
@@ -435,6 +444,15 @@ func (p *staticPolicy) Allocate(ctx context.Context, s state.State, pod *v1.Pod,
 
 	if (!utilfeature.DefaultFeatureGate.Enabled(features.PodLevelResourceManagers) || !utilfeature.DefaultFeatureGate.Enabled(features.PodLevelResources)) && resourcehelper.IsPodLevelResourcesSet(pod) {
 		logger.V(2).Info("Allocation skipped, pod is using pod-level resources which are not supported by the static Memory manager policy", "podUID", podUID)
+		return nil
+	}
+
+	requestedResources, err := getContainerRequestedResources(logger, pod, container)
+	if err != nil {
+		return err
+	}
+	if len(requestedResources) == 0 {
+		logger.V(5).Info("Exclusive memory allocation skipped, container requests no memory resources", "podUID", podUID, "containerName", container.Name)
 		return nil
 	}
 
@@ -457,11 +475,6 @@ func (p *staticPolicy) Allocate(ctx context.Context, s state.State, pod *v1.Pod,
 	// Call Topology Manager to get the aligned affinity across all hint providers.
 	hint := p.affinity.GetAffinity(logger, podUID, container.Name)
 	logger.Info("Got topology affinity", "hint", hint)
-
-	requestedResources, err := getContainerRequestedResources(logger, pod, container)
-	if err != nil {
-		return err
-	}
 
 	machineState := s.GetMachineState()
 	bestHint := &hint
@@ -771,8 +784,12 @@ func getPodRequestedResources(logger klog.Logger, pod *v1.Pod) (map[v1.ResourceN
 	return reqRsrcs, nil
 }
 
-func (p *staticPolicy) GetPodTopologyHints(logger klog.Logger, s state.State, pod *v1.Pod) map[string][]topologymanager.TopologyHint {
-	logger = klog.LoggerWithValues(logger, "pod", klog.KObj(pod))
+func (p *staticPolicy) GetPodTopologyHints(logger klog.Logger, s state.State, pod *v1.Pod, operation lifecycle.Operation) map[string][]topologymanager.TopologyHint {
+	logger = klog.LoggerWithValues(logger, "pod", klog.KObj(pod), "operation", operation)
+	if operation != lifecycle.AddOperation {
+		logger.V(2).Info("GetPodTopologyHints skipped, memory manager with static policy supports only add operation")
+		return nil
+	}
 
 	if v1qos.GetPodQOS(pod) != v1.PodQOSGuaranteed {
 		return nil
@@ -829,8 +846,12 @@ func (p *staticPolicy) GetPodTopologyHints(logger klog.Logger, s state.State, po
 // GetTopologyHints implements the topologymanager.HintProvider Interface
 // and is consulted to achieve NUMA aware resource alignment among this
 // and other resource controllers.
-func (p *staticPolicy) GetTopologyHints(logger klog.Logger, s state.State, pod *v1.Pod, container *v1.Container) map[string][]topologymanager.TopologyHint {
-	logger = klog.LoggerWithValues(logger, "pod", klog.KObj(pod))
+func (p *staticPolicy) GetTopologyHints(logger klog.Logger, s state.State, pod *v1.Pod, container *v1.Container, operation lifecycle.Operation) map[string][]topologymanager.TopologyHint {
+	logger = klog.LoggerWithValues(logger, "pod", klog.KObj(pod), "operation", operation)
+	if operation != lifecycle.AddOperation {
+		logger.V(2).Info("GetTopologyHints skipped, memory manager with static policy supports only add operation")
+		return nil
+	}
 
 	if v1qos.GetPodQOS(pod) != v1.PodQOSGuaranteed {
 		return nil
@@ -839,6 +860,9 @@ func (p *staticPolicy) GetTopologyHints(logger klog.Logger, s state.State, pod *
 	requestedResources, err := getContainerRequestedResources(logger, pod, container)
 	if err != nil {
 		logger.Error(err, "Failed to get container requested resources", "podUID", pod.UID, "containerName", container.Name)
+		return nil
+	}
+	if len(requestedResources) == 0 {
 		return nil
 	}
 

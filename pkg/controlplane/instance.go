@@ -55,9 +55,11 @@ import (
 	resourcev1beta2 "k8s.io/api/resource/v1beta2"
 	schedulingapiv1 "k8s.io/api/scheduling/v1"
 	schedulingapiv1alpha3 "k8s.io/api/scheduling/v1alpha3"
+	schedulingapiv1beta1 "k8s.io/api/scheduling/v1beta1"
 	storageapiv1 "k8s.io/api/storage/v1"
 	storageapiv1alpha1 "k8s.io/api/storage/v1alpha1"
 	storageapiv1beta1 "k8s.io/api/storage/v1beta1"
+	svmv1 "k8s.io/api/storagemigration/v1"
 	svmv1beta1 "k8s.io/api/storagemigration/v1beta1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	utilnet "k8s.io/apimachinery/pkg/util/net"
@@ -403,6 +405,7 @@ func (c CompletedConfig) StorageProviders(client *kubernetes.Clientset) ([]contr
 			IPRepairInterval:        c.Extra.RepairServicesInterval,
 		},
 		EndpointSliceGetter: c.ControlPlane.Extra.EndpointSliceGetter,
+		Authorizer:          c.ControlPlane.Generic.Authorization.Authorizer,
 	}, c.ControlPlane.Generic.Authorization.Authorizer)
 	if err != nil {
 		return nil, err
@@ -477,6 +480,7 @@ var (
 		resourcev1.SchemeGroupVersion,
 		storageapiv1.SchemeGroupVersion,
 		schedulingapiv1.SchemeGroupVersion,
+		svmv1.SchemeGroupVersion,
 	}
 
 	// genericBetaAPIGroupVersionsDisabledByDefault is for all future beta groupVersions for API groups provided by GenericStorageProviders.
@@ -496,6 +500,7 @@ var (
 		networkingapiv1beta1.SchemeGroupVersion,
 		resourcev1beta1.SchemeGroupVersion,
 		resourcev1beta2.SchemeGroupVersion,
+		schedulingapiv1beta1.SchemeGroupVersion,
 	}
 
 	// genericAlphaAPIGroupVersionsDisabledByDefault holds the alpha APIs we have for API groups provided by GenericStorageProviders. They are always disabled by default.

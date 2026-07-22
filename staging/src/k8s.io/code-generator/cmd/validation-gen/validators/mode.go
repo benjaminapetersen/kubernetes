@@ -131,7 +131,7 @@ func (mdtv *modeDiscriminatorTagValidator) GetValidations(context Context, tag c
 func (mdtv *modeDiscriminatorTagValidator) Docs() TagDoc {
 	return TagDoc{
 		Tag:            mdtv.TagName(),
-		StabilityLevel: TagStabilityLevelBeta,
+		StabilityLevel: TagStabilityLevelStable,
 		Scopes:         sets.List(mdtv.ValidScopes()),
 		Description:    "Indicates that this field is a discriminator for state-based validation.",
 		Args: []TagArgDoc{{
@@ -222,7 +222,7 @@ func (imtv *ifModeTagValidator) GetValidations(context Context, tag codetags.Tag
 func (imtv *ifModeTagValidator) Docs() TagDoc {
 	return TagDoc{
 		Tag:            imtv.TagName(),
-		StabilityLevel: TagStabilityLevelBeta,
+		StabilityLevel: TagStabilityLevelStable,
 		Scopes:         sets.List(imtv.ValidScopes()),
 		Description:    "Indicates that this field's validation depends on a mode discriminator.",
 		Args: []TagArgDoc{{
@@ -420,7 +420,7 @@ func generateMemberFieldValidation(structType *types.Type, group *discriminatorG
 	// looking up and comparing correlated list elements for validation ratcheting.
 	var equivArg any
 	if util.IsDirectComparable(util.NonPointer(util.NativeType(fieldType))) {
-		equivArg = Identifier(validateDirectEqualPtr)
+		equivArg = Identifier(validateDirectEqual)
 	} else {
 		equivArg = Identifier(validateSemanticDeepEqual)
 	}

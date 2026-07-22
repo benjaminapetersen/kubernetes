@@ -24,6 +24,7 @@ import (
 	"reflect"
 	goruntime "runtime"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -59,6 +60,7 @@ import (
 	"k8s.io/kubernetes/pkg/kubelet/pluginmanager"
 	schedulerframework "k8s.io/kubernetes/pkg/scheduler/framework"
 	"k8s.io/kubernetes/test/utils/ktesting"
+	"k8s.io/kubernetes/test/utils/ktesting/initoption"
 )
 
 const (
@@ -101,7 +103,9 @@ func TestNewManagerImpl(t *testing.T) {
 	socketDir, socketName, _, err := tmpSocketDir()
 	topologyStore := topologymanager.NewFakeManager(logger)
 	require.NoError(t, err)
-	defer os.RemoveAll(socketDir)
+	t.Cleanup(func() {
+		require.NoErrorf(t, os.RemoveAll(socketDir), "unable to remove dir %s", socketDir)
+	})
 	_, err = newManagerImpl(logger, socketName, nil, topologyStore)
 	require.NoError(t, err)
 	os.RemoveAll(socketDir)
@@ -111,7 +115,9 @@ func TestNewManagerImplStart(t *testing.T) {
 	logger, tCtx := ktesting.NewTestContext(t)
 	socketDir, socketName, pluginSocketName, err := tmpSocketDir()
 	require.NoError(t, err)
-	defer os.RemoveAll(socketDir)
+	t.Cleanup(func() {
+		require.NoErrorf(t, os.RemoveAll(socketDir), "unable to remove dir %s", socketDir)
+	})
 	m, _, p := setup(tCtx, t, []*pluginapi.Device{}, func(_ klog.Logger, n string, d []*pluginapi.Device) {}, socketName, pluginSocketName)
 	err = cleanup(logger, m, p)
 	require.NoError(t, err)
@@ -124,7 +130,9 @@ func TestNewManagerImplStartProbeMode(t *testing.T) {
 	logger, tCtx := ktesting.NewTestContext(t)
 	socketDir, socketName, pluginSocketName, err := tmpSocketDir()
 	require.NoError(t, err)
-	defer os.RemoveAll(socketDir)
+	t.Cleanup(func() {
+		require.NoErrorf(t, os.RemoveAll(socketDir), "unable to remove dir %s", socketDir)
+	})
 	m, _, p, _ := setupInProbeMode(tCtx, t, []*pluginapi.Device{}, func(_ klog.Logger, n string, d []*pluginapi.Device) {}, socketName, pluginSocketName)
 	err = cleanup(logger, m, p)
 	require.NoError(t, err)
@@ -141,7 +149,9 @@ func TestDevicePluginReRegistration(t *testing.T) {
 	}
 	socketDir, socketName, pluginSocketName, err := tmpSocketDir()
 	require.NoError(t, err)
-	defer os.RemoveAll(socketDir)
+	t.Cleanup(func() {
+		require.NoErrorf(t, os.RemoveAll(socketDir), "unable to remove dir %s", socketDir)
+	})
 	devs := []*pluginapi.Device{
 		{ID: "Dev1", Health: pluginapi.Healthy},
 		{ID: "Dev2", Health: pluginapi.Healthy},
@@ -223,7 +233,9 @@ func TestDevicePluginReRegistrationProbeMode(t *testing.T) {
 	}
 	socketDir, socketName, pluginSocketName, err := tmpSocketDir()
 	require.NoError(t, err)
-	defer os.RemoveAll(socketDir)
+	t.Cleanup(func() {
+		require.NoErrorf(t, os.RemoveAll(socketDir), "unable to remove dir %s", socketDir)
+	})
 	devs := []*pluginapi.Device{
 		{ID: "Dev1", Health: pluginapi.Healthy},
 		{ID: "Dev2", Health: pluginapi.Healthy},
@@ -367,7 +379,9 @@ func TestUpdateCapacityAllocatable(t *testing.T) {
 	socketDir, socketName, _, err := tmpSocketDir()
 	topologyStore := topologymanager.NewFakeManager(logger)
 	require.NoError(t, err)
-	defer os.RemoveAll(socketDir)
+	t.Cleanup(func() {
+		require.NoErrorf(t, os.RemoveAll(socketDir), "unable to remove dir %s", socketDir)
+	})
 	testManager, err := newManagerImpl(logger, socketName, nil, topologyStore)
 	as := assert.New(t)
 	as.NotNil(testManager)
@@ -513,7 +527,9 @@ func TestGetAllocatableDevicesMultipleResources(t *testing.T) {
 	socketDir, socketName, _, err := tmpSocketDir()
 	topologyStore := topologymanager.NewFakeManager(logger)
 	require.NoError(t, err)
-	defer os.RemoveAll(socketDir)
+	t.Cleanup(func() {
+		require.NoErrorf(t, os.RemoveAll(socketDir), "unable to remove dir %s", socketDir)
+	})
 	testManager, err := newManagerImpl(logger, socketName, nil, topologyStore)
 	as := assert.New(t)
 	as.NotNil(testManager)
@@ -537,7 +553,7 @@ func TestGetAllocatableDevicesMultipleResources(t *testing.T) {
 	testManager.endpoints[resourceName2] = endpointInfo{e: e2, opts: nil}
 	testManager.genericDeviceUpdateCallback(logger, resourceName2, resource2Devs)
 
-	allocatableDevs := testManager.GetAllocatableDevices()
+	allocatableDevs := testManager.GetAllocatableDevices(logger)
 	as.Len(allocatableDevs, 2)
 
 	devInstances1, ok := allocatableDevs[resourceName1]
@@ -555,7 +571,9 @@ func TestGetAllocatableDevicesHealthTransition(t *testing.T) {
 	socketDir, socketName, _, err := tmpSocketDir()
 	topologyStore := topologymanager.NewFakeManager(logger)
 	require.NoError(t, err)
-	defer os.RemoveAll(socketDir)
+	t.Cleanup(func() {
+		require.NoErrorf(t, os.RemoveAll(socketDir), "unable to remove dir %s", socketDir)
+	})
 	testManager, err := newManagerImpl(logger, socketName, nil, topologyStore)
 	as := assert.New(t)
 	as.NotNil(testManager)
@@ -575,7 +593,7 @@ func TestGetAllocatableDevicesHealthTransition(t *testing.T) {
 
 	testManager.genericDeviceUpdateCallback(logger, resourceName1, resource1Devs)
 
-	allocatableDevs := testManager.GetAllocatableDevices()
+	allocatableDevs := testManager.GetAllocatableDevices(logger)
 	as.Len(allocatableDevs, 1)
 	devInstances, ok := allocatableDevs[resourceName1]
 	as.True(ok)
@@ -589,7 +607,7 @@ func TestGetAllocatableDevicesHealthTransition(t *testing.T) {
 	}
 	testManager.genericDeviceUpdateCallback(logger, resourceName1, resource1Devs)
 
-	allocatableDevs = testManager.GetAllocatableDevices()
+	allocatableDevs = testManager.GetAllocatableDevices(logger)
 	as.Len(allocatableDevs, 1)
 	devInstances, ok = allocatableDevs[resourceName1]
 	as.True(ok)
@@ -703,7 +721,9 @@ func TestCheckpoint(t *testing.T) {
 	as := assert.New(t)
 	tmpDir, err := os.MkdirTemp("", "checkpoint")
 	as.NoError(err)
-	defer os.RemoveAll(tmpDir)
+	t.Cleanup(func() {
+		require.NoErrorf(t, os.RemoveAll(tmpDir), "unable to remove dir %s", tmpDir)
+	})
 	ckm, err := checkpointmanager.NewCheckpointManager(tmpDir)
 	as.NoError(err)
 	testManager := &ManagerImpl{
@@ -1044,7 +1064,9 @@ func TestPodContainerDeviceAllocation(t *testing.T) {
 	}
 	tmpDir, err := os.MkdirTemp("", "checkpoint")
 	as.NoError(err)
-	defer os.RemoveAll(tmpDir)
+	t.Cleanup(func() {
+		require.NoErrorf(t, os.RemoveAll(tmpDir), "unable to remove dir %s", tmpDir)
+	})
 	testManager, err := getTestManager(logger, tmpDir, podsStub.getActivePods, testResources)
 	as.NoError(err)
 
@@ -1096,7 +1118,7 @@ func TestPodContainerDeviceAllocation(t *testing.T) {
 		pod := testCase.testPod
 		activePods = append(activePods, pod)
 		podsStub.updateActivePods(activePods)
-		err := testManager.Allocate(tCtx, pod, &pod.Spec.Containers[0])
+		err := testManager.Allocate(tCtx, pod, &pod.Spec.Containers[0], lifecycle.AddOperation)
 		if !reflect.DeepEqual(err, testCase.expErr) {
 			t.Errorf("DevicePluginManager error (%v). expected error: %v but got: %v",
 				testCase.description, testCase.expErr, err)
@@ -1126,7 +1148,9 @@ func TestPodContainerDeviceToAllocate(t *testing.T) {
 	as := require.New(t)
 	tmpDir, err := os.MkdirTemp("", "checkpoint")
 	as.NoError(err)
-	defer os.RemoveAll(tmpDir)
+	t.Cleanup(func() {
+		require.NoErrorf(t, os.RemoveAll(tmpDir), "unable to remove dir %s", tmpDir)
+	})
 
 	testManager := &ManagerImpl{
 		endpoints:        make(map[string]endpointInfo),
@@ -1278,7 +1302,7 @@ func TestDevicesToAllocateConflictWithUpdateAllocatedDevices(t *testing.T) {
 
 	go func() {
 		<-waitSetGetPreferredAllocChan
-		testManager.UpdateAllocatedDevices()
+		testManager.UpdateAllocatedDevices(logger)
 		waitUpdateAllocatedDevicesChan <- struct{}{}
 	}()
 
@@ -1313,7 +1337,9 @@ func TestGetDeviceRunContainerOptions(t *testing.T) {
 
 	tmpDir, err := os.MkdirTemp("", "checkpoint")
 	as.NoError(err)
-	defer os.RemoveAll(tmpDir)
+	t.Cleanup(func() {
+		require.NoErrorf(t, os.RemoveAll(tmpDir), "unable to remove dir %s", tmpDir)
+	})
 
 	testManager, err := getTestManager(logger, tmpDir, podsStub.getActivePods, testResources)
 	as.NoError(err)
@@ -1329,9 +1355,9 @@ func TestGetDeviceRunContainerOptions(t *testing.T) {
 	activePods := []*v1.Pod{pod1, pod2}
 	podsStub.updateActivePods(activePods)
 
-	err = testManager.Allocate(tCtx, pod1, &pod1.Spec.Containers[0])
+	err = testManager.Allocate(tCtx, pod1, &pod1.Spec.Containers[0], lifecycle.AddOperation)
 	as.NoError(err)
-	err = testManager.Allocate(tCtx, pod2, &pod2.Spec.Containers[0])
+	err = testManager.Allocate(tCtx, pod2, &pod2.Spec.Containers[0], lifecycle.AddOperation)
 	as.NoError(err)
 
 	// when pod is in activePods, GetDeviceRunContainerOptions should return
@@ -1343,7 +1369,7 @@ func TestGetDeviceRunContainerOptions(t *testing.T) {
 
 	activePods = []*v1.Pod{pod2}
 	podsStub.updateActivePods(activePods)
-	testManager.UpdateAllocatedDevices()
+	testManager.UpdateAllocatedDevices(logger)
 
 	// when pod is removed from activePods,G etDeviceRunContainerOptions should return error
 	runContainerOpts, err = testManager.GetDeviceRunContainerOptions(tCtx, pod1, &pod1.Spec.Containers[0])
@@ -1376,7 +1402,9 @@ func TestInitContainerDeviceAllocation(t *testing.T) {
 	}
 	tmpDir, err := os.MkdirTemp("", "checkpoint")
 	as.NoError(err)
-	defer os.RemoveAll(tmpDir)
+	t.Cleanup(func() {
+		require.NoErrorf(t, os.RemoveAll(tmpDir), "unable to remove dir %s", tmpDir)
+	})
 
 	testManager, err := getTestManager(logger, tmpDir, podsStub.getActivePods, testResources)
 	as.NoError(err)
@@ -1428,10 +1456,10 @@ func TestInitContainerDeviceAllocation(t *testing.T) {
 	}
 	podsStub.updateActivePods([]*v1.Pod{podWithPluginResourcesInInitContainers})
 	for _, container := range podWithPluginResourcesInInitContainers.Spec.InitContainers {
-		err = testManager.Allocate(tCtx, podWithPluginResourcesInInitContainers, &container)
+		err = testManager.Allocate(tCtx, podWithPluginResourcesInInitContainers, &container, lifecycle.AddOperation)
 	}
 	for _, container := range podWithPluginResourcesInInitContainers.Spec.Containers {
-		err = testManager.Allocate(tCtx, podWithPluginResourcesInInitContainers, &container)
+		err = testManager.Allocate(tCtx, podWithPluginResourcesInInitContainers, &container, lifecycle.AddOperation)
 	}
 	as.NoError(err)
 	podUID := string(podWithPluginResourcesInInitContainers.UID)
@@ -1478,7 +1506,9 @@ func TestRestartableInitContainerDeviceAllocation(t *testing.T) {
 	}
 	tmpDir, err := os.MkdirTemp("", "checkpoint")
 	as.NoError(err)
-	defer os.RemoveAll(tmpDir)
+	t.Cleanup(func() {
+		require.NoErrorf(t, os.RemoveAll(tmpDir), "unable to remove dir %s", tmpDir)
+	})
 
 	testManager, err := getTestManager(logger, tmpDir, podsStub.getActivePods, testResources)
 	as.NoError(err)
@@ -1539,10 +1569,10 @@ func TestRestartableInitContainerDeviceAllocation(t *testing.T) {
 	}
 	podsStub.updateActivePods([]*v1.Pod{podWithPluginResourcesInRestartableInitContainers})
 	for _, container := range podWithPluginResourcesInRestartableInitContainers.Spec.InitContainers {
-		err = testManager.Allocate(tCtx, podWithPluginResourcesInRestartableInitContainers, &container)
+		err = testManager.Allocate(tCtx, podWithPluginResourcesInRestartableInitContainers, &container, lifecycle.AddOperation)
 	}
 	for _, container := range podWithPluginResourcesInRestartableInitContainers.Spec.Containers {
-		err = testManager.Allocate(tCtx, podWithPluginResourcesInRestartableInitContainers, &container)
+		err = testManager.Allocate(tCtx, podWithPluginResourcesInRestartableInitContainers, &container, lifecycle.AddOperation)
 	}
 	as.NoError(err)
 	podUID := string(podWithPluginResourcesInRestartableInitContainers.UID)
@@ -1595,7 +1625,9 @@ func TestUpdatePluginResources(t *testing.T) {
 	monitorCallback := func(logger klog.Logger, resourceName string, devices []*pluginapi.Device) {}
 	tmpDir, err := os.MkdirTemp("", "checkpoint")
 	as.NoError(err)
-	defer os.RemoveAll(tmpDir)
+	t.Cleanup(func() {
+		require.NoErrorf(t, os.RemoveAll(tmpDir), "unable to remove dir %s", tmpDir)
+	})
 
 	ckm, err := checkpointmanager.NewCheckpointManager(tmpDir)
 	as.NoError(err)
@@ -1654,7 +1686,9 @@ func TestDevicePreStartContainer(t *testing.T) {
 	}
 	tmpDir, err := os.MkdirTemp("", "checkpoint")
 	as.NoError(err)
-	defer os.RemoveAll(tmpDir)
+	t.Cleanup(func() {
+		require.NoErrorf(t, os.RemoveAll(tmpDir), "unable to remove dir %s", tmpDir)
+	})
 
 	testManager, err := getTestManager(logger, tmpDir, podsStub.getActivePods, []TestResource{res1})
 	as.NoError(err)
@@ -1672,7 +1706,7 @@ func TestDevicePreStartContainer(t *testing.T) {
 	activePods := []*v1.Pod{}
 	activePods = append(activePods, pod)
 	podsStub.updateActivePods(activePods)
-	err = testManager.Allocate(tCtx, pod, &pod.Spec.Containers[0])
+	err = testManager.Allocate(tCtx, pod, &pod.Spec.Containers[0], lifecycle.AddOperation)
 	as.NoError(err)
 	runContainerOpts, err := testManager.GetDeviceRunContainerOptions(tCtx, pod, &pod.Spec.Containers[0])
 	as.NoError(err)
@@ -1700,7 +1734,7 @@ func TestDevicePreStartContainer(t *testing.T) {
 		v1.ResourceName(res1.resourceName): *resource.NewQuantity(int64(0), resource.DecimalSI)})
 	activePods = append(activePods, pod2)
 	podsStub.updateActivePods(activePods)
-	err = testManager.Allocate(tCtx, pod2, &pod2.Spec.Containers[0])
+	err = testManager.Allocate(tCtx, pod2, &pod2.Spec.Containers[0], lifecycle.AddOperation)
 	as.NoError(err)
 	_, err = testManager.GetDeviceRunContainerOptions(tCtx, pod2, &pod2.Spec.Containers[0])
 	as.NoError(err)
@@ -1717,7 +1751,9 @@ func TestResetExtendedResource(t *testing.T) {
 	as := assert.New(t)
 	tmpDir, err := os.MkdirTemp("", "checkpoint")
 	as.NoError(err)
-	defer os.RemoveAll(tmpDir)
+	t.Cleanup(func() {
+		require.NoErrorf(t, os.RemoveAll(tmpDir), "unable to remove dir %s", tmpDir)
+	})
 	ckm, err := checkpointmanager.NewCheckpointManager(tmpDir)
 	as.NoError(err)
 	testManager := &ManagerImpl{
@@ -1822,7 +1858,9 @@ func makeDevice(devOnNUMA checkpoint.DevicesPerNUMA, topology bool) map[string]*
 func TestGetTopologyHintsWithUpdates(t *testing.T) {
 	logger, _ := ktesting.NewTestContext(t)
 	socketDir, socketName, _, err := tmpSocketDir()
-	defer os.RemoveAll(socketDir)
+	t.Cleanup(func() {
+		require.NoErrorf(t, os.RemoveAll(socketDir), "unable to remove dir %s", socketDir)
+	})
 	require.NoError(t, err)
 
 	devs := []*pluginapi.Device{}
@@ -1853,7 +1891,7 @@ func TestGetTopologyHintsWithUpdates(t *testing.T) {
 			count:       10,
 			devices:     devs,
 			testfunc: func(manager *wrappedManagerImpl) {
-				manager.GetTopologyHints(logger, testPod, &testPod.Spec.Containers[0])
+				manager.GetTopologyHints(logger, testPod, &testPod.Spec.Containers[0], lifecycle.AddOperation)
 			},
 		},
 		{
@@ -1861,7 +1899,7 @@ func TestGetTopologyHintsWithUpdates(t *testing.T) {
 			count:       10,
 			devices:     devs,
 			testfunc: func(manager *wrappedManagerImpl) {
-				manager.GetPodTopologyHints(logger, testPod)
+				manager.GetPodTopologyHints(logger, testPod, lifecycle.AddOperation)
 			},
 		},
 	}
@@ -1959,7 +1997,7 @@ func TestUpdateAllocatedResourcesStatus(t *testing.T) {
 			},
 		},
 	}
-	testManager.UpdateAllocatedResourcesStatus(pod, status)
+	testManager.UpdateAllocatedResourcesStatus(logger, pod, status)
 
 	expectedStatus := v1.ResourceStatus{
 		Name: v1.ResourceName(resourceName),
@@ -2078,6 +2116,75 @@ func TestFeatureGateResourceHealthStatus(t *testing.T) {
 	}
 }
 
+// TestDeviceHealthUpdateWithDuplicateDeviceIDs verifies that a health change is
+// routed to the pod that owns the device under the reporting resource, even when
+// another pod owns a device with the same ID under a different resource.
+func TestDeviceHealthUpdateWithDuplicateDeviceIDs(t *testing.T) {
+	logger, _ := ktesting.NewTestContext(t)
+	tmpDir, err := os.MkdirTemp("", "checkpoint")
+	require.NoError(t, err, "err should be nil")
+	defer func() {
+		err = os.RemoveAll(tmpDir)
+		if err != nil {
+			t.Fatalf("Fail to remove tmpdir: %v", err)
+		}
+	}()
+	ckm, err := checkpointmanager.NewCheckpointManager(tmpDir)
+	require.NoError(t, err, "err should be nil")
+
+	// Two resources expose a device with the same ID. Device IDs are only
+	// unique within a resource.
+	resourceName1 := "domain1.com/resource1"
+	resourceName2 := "domain2.com/resource2"
+	deviceID := "testdevice"
+	existDevices := map[string]DeviceInstances{
+		resourceName1: {deviceID: &pluginapi.Device{ID: deviceID, Health: pluginapi.Healthy}},
+		resourceName2: {deviceID: &pluginapi.Device{ID: deviceID, Health: pluginapi.Healthy}},
+	}
+
+	testManager := &ManagerImpl{
+		allDevices:        ResourceDeviceInstances(existDevices),
+		endpoints:         make(map[string]endpointInfo),
+		healthyDevices:    make(map[string]sets.Set[string]),
+		unhealthyDevices:  make(map[string]sets.Set[string]),
+		allocatedDevices:  make(map[string]sets.Set[string]),
+		podDevices:        newPodDevices(),
+		checkpointManager: ckm,
+		update:            make(chan resourceupdates.Update, 10),
+	}
+
+	testManager.podDevices.insert("pod1", "con1", resourceName1,
+		checkpoint.DevicesPerNUMA{0: []string{deviceID}},
+		newContainerAllocateResponse(
+			withDevices(map[string]string{"/dev/r1dev1": "/dev/r1dev1"}),
+		),
+	)
+	testManager.podDevices.insert("pod2", "con2", resourceName2,
+		checkpoint.DevicesPerNUMA{0: []string{deviceID}},
+		newContainerAllocateResponse(
+			withDevices(map[string]string{"/dev/r2dev1": "/dev/r2dev1"}),
+		),
+	)
+
+	featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.ResourceHealthStatus, true)
+
+	// The device of resource2 becomes unhealthy: only pod2 must be notified.
+	testManager.genericDeviceUpdateCallback(logger, resourceName2, []*pluginapi.Device{
+		{ID: deviceID, Health: pluginapi.Unhealthy},
+	})
+	u := <-testManager.update
+	assert.Equal(t, resourceupdates.Update{PodUIDs: []string{"pod2"}}, u)
+	assert.Empty(t, testManager.update)
+
+	// The device of resource1 becomes unhealthy: only pod1 must be notified.
+	testManager.genericDeviceUpdateCallback(logger, resourceName1, []*pluginapi.Device{
+		{ID: deviceID, Health: pluginapi.Unhealthy},
+	})
+	u = <-testManager.update
+	assert.Equal(t, resourceupdates.Update{PodUIDs: []string{"pod1"}}, u)
+	assert.Empty(t, testManager.update)
+}
+
 // TestAdmitPodWithDRAResources verifies the behavior of admission
 // of the pods referring DRA extended resources depending on whether
 // the DRAExtendedResource feature gate is enabled or disabled.
@@ -2147,7 +2254,7 @@ func TestAdmitPodWithDRAResources(t *testing.T) {
 				sourcesReady: &sourcesReadyStub{},
 			}
 
-			err := testManager.Allocate(tCtx, pod, &pod.Spec.Containers[0])
+			err := testManager.Allocate(tCtx, pod, &pod.Spec.Containers[0], lifecycle.AddOperation)
 			test.checkError(t, err)
 		})
 	}
@@ -2208,4 +2315,167 @@ func TestEndpointSyncOnDisconnect(t *testing.T) {
 	require.Empty(t, manager.endpoints)
 	require.Empty(t, manager.healthyDevices)
 	require.Empty(t, manager.unhealthyDevices)
+}
+
+// The following lifecycle tests verify that the device manager processes or
+// skips operations based on the given lifecycle.Operation.
+// Since Allocate* does not return an error when an operation is unsupported
+// (it silently returns nil to avoid aborting the entire operation across all
+// hint providers), the tests check log output to confirm whether an operation
+// was processed or skipped.
+//
+// The test values used (e.g. device IDs, pod resource requests) are arbitrary
+// but correct values that let the code run the happy path; the exact values
+// have no special meaning. These tests do not validate the correctness of the
+// allocation results, only whether the operation is processed or skipped for
+// a given lifecycle operation.
+
+func TestLifecycleAllocate(t *testing.T) {
+	testCases := []struct {
+		description string
+		operation   lifecycle.Operation
+		skipped     bool
+	}{
+		{
+			description: "DeviceManager processes AddOperation",
+			operation:   lifecycle.AddOperation,
+			skipped:     false,
+		},
+		{
+			description: "DeviceManager skips ResizeOperation",
+			operation:   lifecycle.ResizeOperation,
+			skipped:     true,
+		},
+		{
+			description: "DeviceManager skips empty operation",
+			operation:   "",
+			skipped:     true,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.description, func(t *testing.T) {
+			ktesting.SetDefaultVerbosity(2)
+			tCtx := ktesting.Init(t, initoption.BufferLogs(true))
+			logger := tCtx.Logger()
+
+			res := TestResource{
+				resourceName:     "domain1.com/resource1",
+				resourceQuantity: *resource.NewQuantity(int64(2), resource.DecimalSI),
+				devs:             checkpoint.DevicesPerNUMA{0: []string{"dev1", "dev2"}},
+				topology:         true,
+			}
+			testResources := []TestResource{res}
+
+			podsStub := activePodsStub{
+				activePods: []*v1.Pod{},
+			}
+			tmpDir, err := os.MkdirTemp("", "checkpoint")
+			require.NoError(t, err)
+			t.Cleanup(func() {
+				require.NoErrorf(t, os.RemoveAll(tmpDir), "unable to remove dir %s", tmpDir)
+			})
+
+			testManager, err := getTestManager(logger, tmpDir, podsStub.getActivePods, testResources)
+			require.NoError(t, err)
+
+			pod := makePod(v1.ResourceList{v1.ResourceName(res.resourceName): res.resourceQuantity})
+			activePods := []*v1.Pod{pod}
+			podsStub.updateActivePods(activePods)
+
+			err = testManager.Allocate(tCtx, pod, &pod.Spec.Containers[0], testCase.operation)
+			require.NoError(t, err)
+
+			underlier, ok := logger.GetSink().(ktesting.Underlier)
+			if !ok {
+				t.Fatalf("Should have had a ktesting LogSink, got %T", logger.GetSink())
+			}
+			logs := underlier.GetBuffer().String()
+			expectedLog := "Device Manager support only Allocate(add)"
+			if testCase.skipped {
+				if !strings.Contains(logs, expectedLog) {
+					t.Errorf("Expected log '%s' not found in logs: %s", expectedLog, logs)
+				}
+			} else {
+				if strings.Contains(logs, expectedLog) {
+					t.Errorf("Unexpected log '%s' found in logs: %s", expectedLog, logs)
+				}
+			}
+		})
+	}
+}
+
+func TestLifecycleAllocatePod(t *testing.T) {
+	testCases := []struct {
+		description string
+		operation   lifecycle.Operation
+		skipped     bool
+	}{
+		{
+			description: "DeviceManager skips all pod-level operations including AddOperation",
+			operation:   lifecycle.AddOperation,
+			skipped:     true,
+		},
+		{
+			description: "DeviceManager skips all pod-level operations including ResizeOperation",
+			operation:   lifecycle.ResizeOperation,
+			skipped:     true,
+		},
+		{
+			description: "DeviceManager skips all pod-level operations including empty operation",
+			operation:   "",
+			skipped:     true,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.description, func(t *testing.T) {
+			ktesting.SetDefaultVerbosity(2)
+			tCtx := ktesting.Init(t, initoption.BufferLogs(true))
+			logger := tCtx.Logger()
+
+			res := TestResource{
+				resourceName:     "domain1.com/resource1",
+				resourceQuantity: *resource.NewQuantity(int64(2), resource.DecimalSI),
+				devs:             checkpoint.DevicesPerNUMA{0: []string{"dev1", "dev2"}},
+				topology:         true,
+			}
+			testResources := []TestResource{res}
+
+			podsStub := activePodsStub{
+				activePods: []*v1.Pod{},
+			}
+			tmpDir, err := os.MkdirTemp("", "checkpoint")
+			require.NoError(t, err)
+			t.Cleanup(func() {
+				require.NoErrorf(t, os.RemoveAll(tmpDir), "unable to remove dir %s", tmpDir)
+			})
+
+			testManager, err := getTestManager(logger, tmpDir, podsStub.getActivePods, testResources)
+			require.NoError(t, err)
+
+			pod := makePod(v1.ResourceList{v1.ResourceName(res.resourceName): res.resourceQuantity})
+			activePods := []*v1.Pod{pod}
+			podsStub.updateActivePods(activePods)
+
+			err = testManager.AllocatePod(logger, pod, testCase.operation)
+			require.NoError(t, err)
+
+			underlier, ok := logger.GetSink().(ktesting.Underlier)
+			if !ok {
+				t.Fatalf("Should have had a ktesting LogSink, got %T", logger.GetSink())
+			}
+			logs := underlier.GetBuffer().String()
+			expectedLog := "Device Manager does not support pod level resource allocation"
+			if testCase.skipped {
+				if !strings.Contains(logs, expectedLog) {
+					t.Errorf("Expected log '%s' not found in logs: %s", expectedLog, logs)
+				}
+			} else {
+				if strings.Contains(logs, expectedLog) {
+					t.Errorf("Unexpected log '%s' found in logs: %s", expectedLog, logs)
+				}
+			}
+		})
+	}
 }

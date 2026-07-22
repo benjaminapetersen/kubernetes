@@ -18,6 +18,7 @@ package meta
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -108,6 +109,54 @@ func GenerateConditionTestCases(fldPath *field.Path) []ConditionTestCase {
 			},
 			ExpectedErrs: nil,
 		},
+		{
+			Name: "invalid missing lastTransitionTime",
+			Conditions: []metav1.Condition{
+				MkCondition(TweakLastTransitionTime(metav1.Time{})),
+			},
+			ExpectedErrs: field.ErrorList{
+				field.Required(fldPath.Index(0).Child("lastTransitionTime"), "").MarkAlpha(),
+			},
+		},
+		{
+			Name: "valid lastTransitionTime",
+			Conditions: []metav1.Condition{
+				MkCondition(TweakLastTransitionTime(metav1.Unix(1, 0))),
+			},
+			ExpectedErrs: nil,
+		},
+		{
+			Name: "valid reason at max length minus one",
+			Conditions: []metav1.Condition{
+				MkCondition(TweakReason(strings.Repeat("a", 1023))),
+			},
+			ExpectedErrs: nil,
+		},
+		{
+			Name: "missing reason",
+			Conditions: []metav1.Condition{
+				MkCondition(TweakReason("")),
+			},
+			ExpectedErrs: field.ErrorList{
+				field.Required(fldPath.Index(0).Child("reason"), "").MarkAlpha(),
+			},
+		},
+		{
+			Name: "valid reason at max length",
+			Conditions: []metav1.Condition{
+				MkCondition(TweakReason(strings.Repeat("a", 1024))),
+			},
+			ExpectedErrs: nil,
+		},
+		{
+			Name: "invalid reason over max length",
+			Conditions: []metav1.Condition{
+				MkCondition(TweakReason(strings.Repeat("a", 1025))),
+			},
+			ExpectedErrs: field.ErrorList{
+				field.TooLong(fldPath.Index(0).Child("reason"), "", 1024).WithOrigin("maxBytes").MarkAlpha(),
+			},
+		},
 	}
 }
 
@@ -156,5 +205,17 @@ func TweakStatus(status metav1.ConditionStatus) func(*metav1.Condition) {
 func TweakObservedGeneration(gen int64) func(*metav1.Condition) {
 	return func(c *metav1.Condition) {
 		c.ObservedGeneration = gen
+	}
+}
+
+func TweakLastTransitionTime(t metav1.Time) func(*metav1.Condition) {
+	return func(c *metav1.Condition) {
+		c.LastTransitionTime = t
+	}
+}
+
+func TweakReason(reason string) func(*metav1.Condition) {
+	return func(c *metav1.Condition) {
+		c.Reason = reason
 	}
 }

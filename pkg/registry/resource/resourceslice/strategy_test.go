@@ -26,6 +26,9 @@ import (
 	v1 "k8s.io/api/core/v1"
 	k8sresource "k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/fields"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/util/version"
 	genericapirequest "k8s.io/apiserver/pkg/endpoints/request"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	featuregatetesting "k8s.io/component-base/featuregate/testing"
@@ -210,6 +213,15 @@ var sliceWithListTypeAttributes = func() *resource.ResourceSlice {
 	return obj
 }()
 
+// The attribute is only permitted on a slice whose devices consume counters,
+// and each of them must carry it as a string. The bare "version" key qualifies
+// with the driver's own domain.
+var sliceWithPartitionTypeAttribute = func() *resource.ResourceSlice {
+	obj := sliceWithPartitionableDevicesConsumesCounters.DeepCopy()
+	obj.Spec.PartitionTypeAttribute = ptr.To(resource.FullyQualifiedName("testdriver.example.com/version"))
+	return obj
+}()
+
 func TestResourceSliceStrategy(t *testing.T) {
 	if Strategy.NamespaceScoped() {
 		t.Errorf("ResourceSlice must not be namespace scoped")
@@ -222,16 +234,11 @@ func TestResourceSliceStrategy(t *testing.T) {
 func TestResourceSliceStrategyCreate(t *testing.T) {
 	ctx := genericapirequest.NewDefaultContext()
 	testCases := map[string]struct {
-		obj                         *resource.ResourceSlice
-		deviceTaints                bool
-		partitionableDevices        bool
-		bindingConditions           bool
-		deviceStatus                bool
-		consumableCapacity          bool
-		draNodeAllocatableResources bool
-		listTypeAttributes          bool
-		expectedValidationError     bool
-		expectObj                   *resource.ResourceSlice
+		obj                     *resource.ResourceSlice
+		featureOverrides        featuregatetesting.FeatureOverrides
+		emulatedVersion         string
+		expectedValidationError bool
+		expectObj               *resource.ResourceSlice
 	}{
 		"simple": {
 			obj: slice,
@@ -250,8 +257,9 @@ func TestResourceSliceStrategyCreate(t *testing.T) {
 			expectedValidationError: true,
 		},
 		"drop-fields-device-taints": {
-			obj:          sliceWithDeviceTaints,
-			deviceTaints: false,
+			obj:              sliceWithDeviceTaints,
+			featureOverrides: featuregatetesting.FeatureOverrides{features.DRADeviceTaints: false},
+			emulatedVersion:  "1.35",
 			expectObj: func() *resource.ResourceSlice {
 				obj := slice.DeepCopy()
 				obj.Generation = 1
@@ -259,8 +267,8 @@ func TestResourceSliceStrategyCreate(t *testing.T) {
 			}(),
 		},
 		"keep-fields-device-taints": {
-			obj:          sliceWithDeviceTaints,
-			deviceTaints: true,
+			obj:              sliceWithDeviceTaints,
+			featureOverrides: featuregatetesting.FeatureOverrides{features.DRADeviceTaints: true},
 			expectObj: func() *resource.ResourceSlice {
 				obj := sliceWithDeviceTaints.DeepCopy()
 				obj.ObjectMeta.Generation = 1
@@ -272,7 +280,7 @@ func TestResourceSliceStrategyCreate(t *testing.T) {
 				obj := sliceWithPartitionableDevicesConsumesCounters.DeepCopy()
 				return obj
 			}(),
-			partitionableDevices: false,
+			featureOverrides: featuregatetesting.FeatureOverrides{features.DRAPartitionableDevices: false},
 			expectObj: func() *resource.ResourceSlice {
 				obj := sliceWithPartitionableDevicesConsumesCounters.DeepCopy()
 				obj.ObjectMeta.Generation = 1
@@ -285,7 +293,7 @@ func TestResourceSliceStrategyCreate(t *testing.T) {
 		// dropped.
 		"drop-fields-partitionable-devices-with-per-device-node-selection": {
 			obj:                     sliceWithPartitionableDevicesPerDeviceNodeSelection,
-			partitionableDevices:    false,
+			featureOverrides:        featuregatetesting.FeatureOverrides{features.DRAPartitionableDevices: false},
 			expectedValidationError: true,
 		},
 		"drop-fields-partitionable-devices-with-shared-counters": {
@@ -293,7 +301,7 @@ func TestResourceSliceStrategyCreate(t *testing.T) {
 				obj := sliceWithPartitionableDevicesSharedCounters.DeepCopy()
 				return obj
 			}(),
-			partitionableDevices: false,
+			featureOverrides: featuregatetesting.FeatureOverrides{features.DRAPartitionableDevices: false},
 			expectObj: func() *resource.ResourceSlice {
 				obj := sliceWithPartitionableDevicesSharedCounters.DeepCopy()
 				obj.ObjectMeta.Generation = 1
@@ -302,8 +310,8 @@ func TestResourceSliceStrategyCreate(t *testing.T) {
 			}(),
 		},
 		"keep-fields-partitionable-devices-with-consumes-counters": {
-			obj:                  sliceWithPartitionableDevicesConsumesCounters,
-			partitionableDevices: true,
+			obj:              sliceWithPartitionableDevicesConsumesCounters,
+			featureOverrides: featuregatetesting.FeatureOverrides{features.DRAPartitionableDevices: true},
 			expectObj: func() *resource.ResourceSlice {
 				obj := sliceWithPartitionableDevicesConsumesCounters.DeepCopy()
 				obj.Generation = 1
@@ -311,8 +319,8 @@ func TestResourceSliceStrategyCreate(t *testing.T) {
 			}(),
 		},
 		"keep-fields-partitionable-devices-with-per-device-node-selection": {
-			obj:                  sliceWithPartitionableDevicesPerDeviceNodeSelection,
-			partitionableDevices: true,
+			obj:              sliceWithPartitionableDevicesPerDeviceNodeSelection,
+			featureOverrides: featuregatetesting.FeatureOverrides{features.DRAPartitionableDevices: true},
 			expectObj: func() *resource.ResourceSlice {
 				obj := sliceWithPartitionableDevicesPerDeviceNodeSelection.DeepCopy()
 				obj.Generation = 1
@@ -320,8 +328,8 @@ func TestResourceSliceStrategyCreate(t *testing.T) {
 			}(),
 		},
 		"keep-fields-partitionable-devices-with-shared-counters": {
-			obj:                  sliceWithPartitionableDevicesSharedCounters,
-			partitionableDevices: true,
+			obj:              sliceWithPartitionableDevicesSharedCounters,
+			featureOverrides: featuregatetesting.FeatureOverrides{features.DRAPartitionableDevices: true},
 			expectObj: func() *resource.ResourceSlice {
 				obj := sliceWithPartitionableDevicesSharedCounters.DeepCopy()
 				obj.Generation = 1
@@ -329,9 +337,9 @@ func TestResourceSliceStrategyCreate(t *testing.T) {
 			}(),
 		},
 		"drop-fields-binding-conditions": {
-			obj:               sliceWithBindingConditions,
-			bindingConditions: false,
-			deviceStatus:      false,
+			obj:              sliceWithBindingConditions,
+			emulatedVersion:  "1.35",
+			featureOverrides: featuregatetesting.FeatureOverrides{features.DRADeviceBindingConditions: false, features.DRAResourceClaimDeviceStatus: false},
 			expectObj: func() *resource.ResourceSlice {
 				obj := slice.DeepCopy()
 				obj.Generation = 1
@@ -339,9 +347,8 @@ func TestResourceSliceStrategyCreate(t *testing.T) {
 			}(),
 		},
 		"drop-fields-binding-conditions-with-binding-conditions": {
-			obj:               sliceWithBindingConditions,
-			bindingConditions: false,
-			deviceStatus:      true,
+			obj:              sliceWithBindingConditions,
+			featureOverrides: featuregatetesting.FeatureOverrides{features.DRADeviceBindingConditions: false, features.DRAResourceClaimDeviceStatus: true},
 			expectObj: func() *resource.ResourceSlice {
 				obj := slice.DeepCopy()
 				obj.Generation = 1
@@ -349,9 +356,8 @@ func TestResourceSliceStrategyCreate(t *testing.T) {
 			}(),
 		},
 		"keep-fields-binding-conditions": {
-			obj:               sliceWithBindingConditions,
-			bindingConditions: true,
-			deviceStatus:      true,
+			obj:              sliceWithBindingConditions,
+			featureOverrides: featuregatetesting.FeatureOverrides{features.DRADeviceBindingConditions: true, features.DRAResourceClaimDeviceStatus: true},
 			expectObj: func() *resource.ResourceSlice {
 				obj := sliceWithBindingConditions.DeepCopy()
 				obj.Generation = 1
@@ -359,8 +365,8 @@ func TestResourceSliceStrategyCreate(t *testing.T) {
 			}(),
 		},
 		"keep-fields-consumable-capacity": {
-			obj:                sliceWithConsumableCapacity,
-			consumableCapacity: true,
+			obj:              sliceWithConsumableCapacity,
+			featureOverrides: featuregatetesting.FeatureOverrides{features.DRAConsumableCapacity: true},
 			expectObj: func() *resource.ResourceSlice {
 				obj := sliceWithConsumableCapacity.DeepCopy()
 				obj.Generation = 1
@@ -368,8 +374,8 @@ func TestResourceSliceStrategyCreate(t *testing.T) {
 			}(),
 		},
 		"drop-fields-consumable-capacity-disabled-feature": {
-			obj:                sliceWithConsumableCapacity,
-			consumableCapacity: false,
+			obj:              sliceWithConsumableCapacity,
+			featureOverrides: featuregatetesting.FeatureOverrides{features.DRAConsumableCapacity: false},
 			expectObj: func() *resource.ResourceSlice {
 				obj := sliceWithCapacity.DeepCopy()
 				obj.Generation = 1
@@ -377,8 +383,8 @@ func TestResourceSliceStrategyCreate(t *testing.T) {
 			}(),
 		},
 		"keep-fields-node-allocatable-dra-claims": {
-			obj:                         sliceWithNodeAllocatableResources,
-			draNodeAllocatableResources: true,
+			obj:              sliceWithNodeAllocatableResources,
+			featureOverrides: featuregatetesting.FeatureOverrides{features.DRANodeAllocatableResources: true},
 			expectObj: func() *resource.ResourceSlice {
 				obj := sliceWithNodeAllocatableResources.DeepCopy()
 				obj.Generation = 1
@@ -386,8 +392,8 @@ func TestResourceSliceStrategyCreate(t *testing.T) {
 			}(),
 		},
 		"drop-fields-node-allocatable-dra-claims-disabled-feature": {
-			obj:                         sliceWithNodeAllocatableResources,
-			draNodeAllocatableResources: false,
+			obj:              sliceWithNodeAllocatableResources,
+			featureOverrides: featuregatetesting.FeatureOverrides{features.DRANodeAllocatableResources: false},
 			expectObj: func() *resource.ResourceSlice {
 				obj := slice.DeepCopy()
 				obj.Generation = 1
@@ -395,8 +401,8 @@ func TestResourceSliceStrategyCreate(t *testing.T) {
 			}(),
 		},
 		"keep-fields-list-type-attributes": {
-			obj:                sliceWithListTypeAttributes,
-			listTypeAttributes: true,
+			obj:              sliceWithListTypeAttributes,
+			featureOverrides: featuregatetesting.FeatureOverrides{features.DRAListTypeAttributes: true},
 			expectObj: func() *resource.ResourceSlice {
 				obj := sliceWithListTypeAttributes.DeepCopy()
 				obj.Generation = 1
@@ -405,22 +411,35 @@ func TestResourceSliceStrategyCreate(t *testing.T) {
 		},
 		"drop-fields-list-type-attributes": {
 			obj:                     sliceWithListTypeAttributes,
-			listTypeAttributes:      false,
+			featureOverrides:        featuregatetesting.FeatureOverrides{features.DRAListTypeAttributes: false},
 			expectedValidationError: true,
+		},
+		"keep-fields-partition-type-attribute": {
+			obj:              sliceWithPartitionTypeAttribute,
+			featureOverrides: featuregatetesting.FeatureOverrides{features.DRAPartitionableDevices: true, features.DRAResourcePoolStatus: true, features.DRAPartitionableDevicesType: true},
+			expectObj: func() *resource.ResourceSlice {
+				obj := sliceWithPartitionTypeAttribute.DeepCopy()
+				obj.Generation = 1
+				return obj
+			}(),
+		},
+		"drop-fields-partition-type-attribute": {
+			obj:              sliceWithPartitionTypeAttribute,
+			featureOverrides: featuregatetesting.FeatureOverrides{features.DRAPartitionableDevices: true, features.DRAResourcePoolStatus: true, features.DRAPartitionableDevicesType: false},
+			expectObj: func() *resource.ResourceSlice {
+				obj := sliceWithPartitionableDevicesConsumesCounters.DeepCopy()
+				obj.Generation = 1
+				return obj
+			}(),
 		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			featuregatetesting.SetFeatureGatesDuringTest(t, utilfeature.DefaultFeatureGate, featuregatetesting.FeatureOverrides{
-				features.DRADeviceTaints:              tc.deviceTaints,
-				features.DRAPartitionableDevices:      tc.partitionableDevices,
-				features.DRADeviceBindingConditions:   tc.bindingConditions,
-				features.DRAResourceClaimDeviceStatus: tc.deviceStatus,
-				features.DRAConsumableCapacity:        tc.consumableCapacity,
-				features.DRANodeAllocatableResources:  tc.draNodeAllocatableResources,
-				features.DRAListTypeAttributes:        tc.listTypeAttributes,
-			})
+			if tc.emulatedVersion != "" {
+				featuregatetesting.SetFeatureGateEmulationVersionDuringTest(t, utilfeature.DefaultFeatureGate, version.MustParse(tc.emulatedVersion))
+			}
+			featuregatetesting.SetFeatureGatesDuringTest(t, utilfeature.DefaultFeatureGate, tc.featureOverrides)
 
 			obj := tc.obj.DeepCopy()
 
@@ -446,12 +465,8 @@ func TestResourceSliceStrategyUpdate(t *testing.T) {
 	testcases := map[string]struct {
 		oldObj                *resource.ResourceSlice
 		newObj                *resource.ResourceSlice
-		deviceTaints          bool
-		partitionableDevices  bool
-		deviceStatus          bool
-		bindingConditions     bool
-		consumableCapacity    bool
-		listTypeAttributes    bool
+		featureOverrides      featuregatetesting.FeatureOverrides
+		emulatedVersion       string
 		expectValidationError bool
 		expectObj             *resource.ResourceSlice
 	}{
@@ -485,7 +500,8 @@ func TestResourceSliceStrategyUpdate(t *testing.T) {
 				obj.ResourceVersion = "4"
 				return obj
 			}(),
-			deviceTaints: false,
+			featureOverrides: featuregatetesting.FeatureOverrides{features.DRADeviceTaints: false},
+			emulatedVersion:  "1.35",
 			expectObj: func() *resource.ResourceSlice {
 				obj := slice.DeepCopy()
 				obj.ResourceVersion = "4"
@@ -499,7 +515,7 @@ func TestResourceSliceStrategyUpdate(t *testing.T) {
 				obj.ResourceVersion = "4"
 				return obj
 			}(),
-			deviceTaints: true,
+			featureOverrides: featuregatetesting.FeatureOverrides{features.DRADeviceTaints: true},
 			expectObj: func() *resource.ResourceSlice {
 				obj := sliceWithDeviceTaints.DeepCopy()
 				obj.ResourceVersion = "4"
@@ -514,7 +530,7 @@ func TestResourceSliceStrategyUpdate(t *testing.T) {
 				obj.ResourceVersion = "4"
 				return obj
 			}(),
-			deviceTaints: true,
+			featureOverrides: featuregatetesting.FeatureOverrides{features.DRADeviceTaints: true},
 			expectObj: func() *resource.ResourceSlice {
 				obj := sliceWithDeviceTaints.DeepCopy()
 				obj.ResourceVersion = "4"
@@ -528,9 +544,24 @@ func TestResourceSliceStrategyUpdate(t *testing.T) {
 				obj.ResourceVersion = "4"
 				return obj
 			}(),
-			deviceTaints: false,
+			featureOverrides: featuregatetesting.FeatureOverrides{features.DRADeviceTaints: false},
+			emulatedVersion:  "1.35",
 			expectObj: func() *resource.ResourceSlice {
 				obj := sliceWithDeviceTaints.DeepCopy()
+				obj.ResourceVersion = "4"
+				return obj
+			}(),
+		},
+		"keep-existing-fields-partition-type-attribute-disabled-feature": {
+			oldObj: sliceWithPartitionTypeAttribute,
+			newObj: func() *resource.ResourceSlice {
+				obj := sliceWithPartitionTypeAttribute.DeepCopy()
+				obj.ResourceVersion = "4"
+				return obj
+			}(),
+			featureOverrides: featuregatetesting.FeatureOverrides{features.DRAPartitionableDevices: true, features.DRAResourcePoolStatus: true, features.DRAPartitionableDevicesType: false},
+			expectObj: func() *resource.ResourceSlice {
+				obj := sliceWithPartitionTypeAttribute.DeepCopy()
 				obj.ResourceVersion = "4"
 				return obj
 			}(),
@@ -542,7 +573,7 @@ func TestResourceSliceStrategyUpdate(t *testing.T) {
 				obj.ResourceVersion = "4"
 				return obj
 			}(),
-			partitionableDevices: false,
+			featureOverrides: featuregatetesting.FeatureOverrides{features.DRAPartitionableDevices: false},
 			expectObj: func() *resource.ResourceSlice {
 				obj := sliceWithPartitionableDevicesConsumesCounters.DeepCopy()
 				obj.ResourceVersion = "4"
@@ -558,7 +589,7 @@ func TestResourceSliceStrategyUpdate(t *testing.T) {
 				obj.ResourceVersion = "4"
 				return obj
 			}(),
-			partitionableDevices:  false,
+			featureOverrides:      featuregatetesting.FeatureOverrides{features.DRAPartitionableDevices: false},
 			expectValidationError: true,
 		},
 		"drop-fields-partitionable-devices-with-shared-counters": {
@@ -568,7 +599,7 @@ func TestResourceSliceStrategyUpdate(t *testing.T) {
 				obj.ResourceVersion = "4"
 				return obj
 			}(),
-			partitionableDevices: false,
+			featureOverrides: featuregatetesting.FeatureOverrides{features.DRAPartitionableDevices: false},
 			expectObj: func() *resource.ResourceSlice {
 				obj := sliceWithPartitionableDevicesSharedCounters.DeepCopy()
 				obj.ResourceVersion = "4"
@@ -584,7 +615,7 @@ func TestResourceSliceStrategyUpdate(t *testing.T) {
 				obj.ResourceVersion = "4"
 				return obj
 			}(),
-			partitionableDevices: true,
+			featureOverrides: featuregatetesting.FeatureOverrides{features.DRAPartitionableDevices: true},
 			expectObj: func() *resource.ResourceSlice {
 				obj := sliceWithPartitionableDevicesConsumesCounters.DeepCopy()
 				obj.ResourceVersion = "4"
@@ -599,7 +630,7 @@ func TestResourceSliceStrategyUpdate(t *testing.T) {
 				obj.ResourceVersion = "4"
 				return obj
 			}(),
-			partitionableDevices:  true,
+			featureOverrides:      featuregatetesting.FeatureOverrides{features.DRAPartitionableDevices: true},
 			expectValidationError: true, // Spec.NodeName is immutable.
 		},
 		"keep-fields-partitionable-devices-with-shared-counters": {
@@ -609,7 +640,7 @@ func TestResourceSliceStrategyUpdate(t *testing.T) {
 				obj.ResourceVersion = "4"
 				return obj
 			}(),
-			partitionableDevices: true,
+			featureOverrides: featuregatetesting.FeatureOverrides{features.DRAPartitionableDevices: true},
 			expectObj: func() *resource.ResourceSlice {
 				obj := sliceWithPartitionableDevicesSharedCounters.DeepCopy()
 				obj.ResourceVersion = "4"
@@ -624,7 +655,7 @@ func TestResourceSliceStrategyUpdate(t *testing.T) {
 				obj.ResourceVersion = "4"
 				return obj
 			}(),
-			partitionableDevices: true,
+			featureOverrides: featuregatetesting.FeatureOverrides{features.DRAPartitionableDevices: true},
 			expectObj: func() *resource.ResourceSlice {
 				obj := sliceWithPartitionableDevicesConsumesCounters.DeepCopy()
 				obj.ResourceVersion = "4"
@@ -638,7 +669,7 @@ func TestResourceSliceStrategyUpdate(t *testing.T) {
 				obj.ResourceVersion = "4"
 				return obj
 			}(),
-			partitionableDevices: true,
+			featureOverrides: featuregatetesting.FeatureOverrides{features.DRAPartitionableDevices: true},
 			expectObj: func() *resource.ResourceSlice {
 				obj := sliceWithPartitionableDevicesPerDeviceNodeSelection.DeepCopy()
 				obj.ResourceVersion = "4"
@@ -652,7 +683,7 @@ func TestResourceSliceStrategyUpdate(t *testing.T) {
 				obj.ResourceVersion = "4"
 				return obj
 			}(),
-			partitionableDevices: true,
+			featureOverrides: featuregatetesting.FeatureOverrides{features.DRAPartitionableDevices: true},
 			expectObj: func() *resource.ResourceSlice {
 				obj := sliceWithPartitionableDevicesSharedCounters.DeepCopy()
 				obj.ResourceVersion = "4"
@@ -666,7 +697,7 @@ func TestResourceSliceStrategyUpdate(t *testing.T) {
 				obj.ResourceVersion = "4"
 				return obj
 			}(),
-			partitionableDevices: false,
+			featureOverrides: featuregatetesting.FeatureOverrides{features.DRAPartitionableDevices: false},
 			expectObj: func() *resource.ResourceSlice {
 				obj := sliceWithPartitionableDevicesConsumesCounters.DeepCopy()
 				obj.ResourceVersion = "4"
@@ -680,7 +711,7 @@ func TestResourceSliceStrategyUpdate(t *testing.T) {
 				obj.ResourceVersion = "4"
 				return obj
 			}(),
-			partitionableDevices: false,
+			featureOverrides: featuregatetesting.FeatureOverrides{features.DRAPartitionableDevices: false},
 			expectObj: func() *resource.ResourceSlice {
 				obj := sliceWithPartitionableDevicesPerDeviceNodeSelection.DeepCopy()
 				obj.ResourceVersion = "4"
@@ -694,7 +725,7 @@ func TestResourceSliceStrategyUpdate(t *testing.T) {
 				obj.ResourceVersion = "4"
 				return obj
 			}(),
-			partitionableDevices: false,
+			featureOverrides: featuregatetesting.FeatureOverrides{features.DRAPartitionableDevices: false},
 			expectObj: func() *resource.ResourceSlice {
 				obj := sliceWithPartitionableDevicesSharedCounters.DeepCopy()
 				obj.ResourceVersion = "4"
@@ -714,8 +745,8 @@ func TestResourceSliceStrategyUpdate(t *testing.T) {
 				obj.Generation = 1
 				return obj
 			}(),
-			bindingConditions: false,
-			deviceStatus:      false,
+			emulatedVersion:  "1.35",
+			featureOverrides: featuregatetesting.FeatureOverrides{features.DRADeviceBindingConditions: false, features.DRAResourceClaimDeviceStatus: false},
 		},
 		"drop-fields-binding-conditions-with-binding-conditions": {
 			oldObj: slice,
@@ -730,8 +761,7 @@ func TestResourceSliceStrategyUpdate(t *testing.T) {
 				obj.Generation = 1
 				return obj
 			}(),
-			bindingConditions: false,
-			deviceStatus:      true,
+			featureOverrides: featuregatetesting.FeatureOverrides{features.DRADeviceBindingConditions: false, features.DRAResourceClaimDeviceStatus: true},
 		},
 		"keep-fields-binding-conditions": {
 			oldObj: slice,
@@ -746,8 +776,7 @@ func TestResourceSliceStrategyUpdate(t *testing.T) {
 				obj.Generation = 1
 				return obj
 			}(),
-			bindingConditions: true,
-			deviceStatus:      true,
+			featureOverrides: featuregatetesting.FeatureOverrides{features.DRADeviceBindingConditions: true, features.DRAResourceClaimDeviceStatus: true},
 		},
 		"keep-existing-fields-binding-conditions-without-featuregate-enabled": {
 			oldObj: sliceWithBindingConditions,
@@ -763,17 +792,16 @@ func TestResourceSliceStrategyUpdate(t *testing.T) {
 				obj.Generation = 1
 				return obj
 			}(),
-			bindingConditions: false,
-			deviceStatus:      true,
+			featureOverrides: featuregatetesting.FeatureOverrides{features.DRADeviceBindingConditions: false, features.DRAResourceClaimDeviceStatus: true},
 		},
-		"keep-existing-fields-consumable-capacity": {
-			oldObj: sliceWithCapacity,
+		"keep-consumable-capacity": {
+			oldObj: slice,
 			newObj: func() *resource.ResourceSlice {
 				obj := sliceWithConsumableCapacity.DeepCopy()
 				obj.ResourceVersion = "4"
 				return obj
 			}(),
-			consumableCapacity: true,
+			featureOverrides: featuregatetesting.FeatureOverrides{features.DRAConsumableCapacity: true},
 			expectObj: func() *resource.ResourceSlice {
 				obj := sliceWithConsumableCapacity.DeepCopy()
 				obj.ResourceVersion = "4"
@@ -788,7 +816,7 @@ func TestResourceSliceStrategyUpdate(t *testing.T) {
 				obj.ResourceVersion = "4"
 				return obj
 			}(),
-			consumableCapacity: false,
+			featureOverrides: featuregatetesting.FeatureOverrides{features.DRAConsumableCapacity: false},
 			expectObj: func() *resource.ResourceSlice {
 				obj := sliceWithConsumableCapacity.DeepCopy()
 				obj.ResourceVersion = "4"
@@ -802,7 +830,7 @@ func TestResourceSliceStrategyUpdate(t *testing.T) {
 				obj.ResourceVersion = "4"
 				return obj
 			}(),
-			consumableCapacity: false,
+			featureOverrides: featuregatetesting.FeatureOverrides{features.DRAConsumableCapacity: false},
 			expectObj: func() *resource.ResourceSlice {
 				obj := sliceWithCapacity.DeepCopy()
 				obj.ResourceVersion = "4"
@@ -811,13 +839,13 @@ func TestResourceSliceStrategyUpdate(t *testing.T) {
 			}(),
 		},
 		"drop-list-type-attributes": {
-			oldObj: slice.DeepCopy(),
+			oldObj: slice,
 			newObj: func() *resource.ResourceSlice {
 				obj := sliceWithListTypeAttributes.DeepCopy()
 				obj.ResourceVersion = "4"
 				return obj
 			}(),
-			listTypeAttributes:    false,
+			featureOverrides:      featuregatetesting.FeatureOverrides{features.DRAListTypeAttributes: false},
 			expectValidationError: true,
 		},
 		"keep-fields-list-type-attributes": {
@@ -827,7 +855,7 @@ func TestResourceSliceStrategyUpdate(t *testing.T) {
 				obj.ResourceVersion = "4"
 				return obj
 			}(),
-			listTypeAttributes: true,
+			featureOverrides: featuregatetesting.FeatureOverrides{features.DRAListTypeAttributes: true},
 			expectObj: func() *resource.ResourceSlice {
 				obj := sliceWithListTypeAttributes.DeepCopy()
 				obj.ResourceVersion = "4"
@@ -842,7 +870,7 @@ func TestResourceSliceStrategyUpdate(t *testing.T) {
 				obj.ResourceVersion = "4"
 				return obj
 			}(),
-			listTypeAttributes: true,
+			featureOverrides: featuregatetesting.FeatureOverrides{features.DRAListTypeAttributes: true},
 			expectObj: func() *resource.ResourceSlice {
 				obj := sliceWithListTypeAttributes.DeepCopy()
 				obj.ResourceVersion = "4"
@@ -856,7 +884,7 @@ func TestResourceSliceStrategyUpdate(t *testing.T) {
 				obj.ResourceVersion = "4"
 				return obj
 			}(),
-			listTypeAttributes: false,
+			featureOverrides: featuregatetesting.FeatureOverrides{features.DRAListTypeAttributes: false},
 			expectObj: func() *resource.ResourceSlice {
 				obj := sliceWithListTypeAttributes.DeepCopy()
 				obj.ResourceVersion = "4"
@@ -867,14 +895,10 @@ func TestResourceSliceStrategyUpdate(t *testing.T) {
 
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
-			featuregatetesting.SetFeatureGatesDuringTest(t, utilfeature.DefaultFeatureGate, featuregatetesting.FeatureOverrides{
-				features.DRADeviceTaints:              tc.deviceTaints,
-				features.DRAPartitionableDevices:      tc.partitionableDevices,
-				features.DRADeviceBindingConditions:   tc.bindingConditions,
-				features.DRAResourceClaimDeviceStatus: tc.deviceStatus,
-				features.DRAConsumableCapacity:        tc.consumableCapacity,
-				features.DRAListTypeAttributes:        tc.listTypeAttributes,
-			})
+			if tc.emulatedVersion != "" {
+				featuregatetesting.SetFeatureGateEmulationVersionDuringTest(t, utilfeature.DefaultFeatureGate, version.MustParse(tc.emulatedVersion))
+			}
+			featuregatetesting.SetFeatureGatesDuringTest(t, utilfeature.DefaultFeatureGate, tc.featureOverrides)
 
 			oldObj := tc.oldObj.DeepCopy()
 			newObj := tc.newObj.DeepCopy()
@@ -967,6 +991,107 @@ func TestWarningsOnUpdate(t *testing.T) {
 				warnings = []string{}
 			}
 			require.Equal(t, tc.wantWarningMessages, warnings)
+		})
+	}
+}
+
+func TestMatch(t *testing.T) {
+	testCases := map[string]struct {
+		in            *resource.ResourceSlice
+		fieldSelector fields.Selector
+		expectMatch   bool
+	}{
+		"match-metadata-name": {
+			in: &resource.ResourceSlice{
+				ObjectMeta: metav1.ObjectMeta{Name: "foo"},
+			},
+			fieldSelector: fields.ParseSelectorOrDie("metadata.name=foo"),
+			expectMatch:   true,
+		},
+		"not-match-metadata-name": {
+			in: &resource.ResourceSlice{
+				ObjectMeta: metav1.ObjectMeta{Name: "foo"},
+			},
+			fieldSelector: fields.ParseSelectorOrDie("metadata.name=bar"),
+			expectMatch:   false,
+		},
+		"match-spec-driver": {
+			in: &resource.ResourceSlice{
+				Spec: resource.ResourceSliceSpec{
+					Driver: "foo",
+				},
+			},
+			fieldSelector: fields.ParseSelectorOrDie("spec.driver=foo"),
+			expectMatch:   true,
+		},
+		"not-match-spec-driver": {
+			in: &resource.ResourceSlice{
+				Spec: resource.ResourceSliceSpec{
+					Driver: "foo",
+				},
+			},
+			fieldSelector: fields.ParseSelectorOrDie("spec.driver=bar"),
+			expectMatch:   false,
+		},
+		"match-spec-node-name": {
+			in: &resource.ResourceSlice{
+				Spec: resource.ResourceSliceSpec{
+					NodeName: new("foo"),
+				},
+			},
+			fieldSelector: fields.ParseSelectorOrDie("spec.nodeName=foo"),
+			expectMatch:   true,
+		},
+		"not-match-spec-node-name": {
+			in: &resource.ResourceSlice{
+				Spec: resource.ResourceSliceSpec{
+					NodeName: new("foo"),
+				},
+			},
+			fieldSelector: fields.ParseSelectorOrDie("spec.nodeName=bar"),
+			expectMatch:   false,
+		},
+		"match-spec-pool-name": {
+			in: &resource.ResourceSlice{
+				Spec: resource.ResourceSliceSpec{
+					Pool: resource.ResourcePool{
+						Name: "foo",
+					},
+				},
+			},
+			fieldSelector: fields.ParseSelectorOrDie("spec.pool.name=foo"),
+			expectMatch:   true,
+		},
+		"not-match-spec-pool-name": {
+			in: &resource.ResourceSlice{
+				Spec: resource.ResourceSliceSpec{
+					Pool: resource.ResourcePool{
+						Name: "foo",
+					},
+				},
+			},
+			fieldSelector: fields.ParseSelectorOrDie("spec.pool.name=bar"),
+			expectMatch:   false,
+		},
+		"not-match-spec-pool-generation": {
+			in: &resource.ResourceSlice{
+				Spec: resource.ResourceSliceSpec{
+					Pool: resource.ResourcePool{
+						Generation: 1,
+					},
+				},
+			},
+			fieldSelector: fields.ParseSelectorOrDie("spec.pool.generation=1"),
+			expectMatch:   false,
+		},
+	}
+
+	for name, testCase := range testCases {
+		t.Run(name, func(t *testing.T) {
+			m := Match(labels.Everything(), testCase.fieldSelector)
+			result, err := m.Matches(testCase.in)
+			require.NoError(t, err)
+			assert.Equal(t, testCase.expectMatch, result, "selector: %s, resourceSlice: %+v", testCase.fieldSelector.String(), testCase.in)
 		})
 	}
 }

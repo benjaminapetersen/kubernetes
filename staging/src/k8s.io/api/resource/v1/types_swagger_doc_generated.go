@@ -74,7 +74,7 @@ func (CapacityRequestPolicy) SwaggerDoc() map[string]string {
 }
 
 var map_CapacityRequestPolicyRange = map[string]string{
-	"":     "CapacityRequestPolicyRange defines a valid range for consumable capacity values.\n\n  - If the requested amount is less than Min, it is rounded up to the Min value.\n  - If Step is set and the requested amount is between Min and Max but not aligned with Step,\n    it will be rounded up to the next value equal to Min + (n * Step).\n  - If Step is not set, the requested amount is used as-is if it falls within the range Min to Max (if set).\n  - If the requested or rounded amount exceeds Max (if set), the request does not satisfy the policy,\n    and the device cannot be allocated.",
+	"":     "CapacityRequestPolicyRange defines a valid range for consumable capacity values.\n\nIf the DRAFractionalCapacityRange feature gate is enabled and at least one of Min, Max, or Step is a fractional quantity (i.e. its value is not an integer), milli-unit arithmetic is used instead, supporting values with up to 3 decimal places (e.g. 100m = 0.1). The largest supported value then is 1000 times smaller compared to using 64-bit integers. Otherwise, all comparisons use 64-bit integer arithmetic via resource.Quantity.Value().\n\n  - If the requested amount is less than Min, it is rounded up to the Min value.\n  - If Step is set and the requested amount is between Min and Max but not aligned with Step,\n    it will be rounded up to the next value equal to Min + (n * Step).\n  - If Step is not set, the requested amount is used as-is if it falls within the range Min to Max (if set).\n  - If the requested or rounded amount exceeds Max (if set), the request does not satisfy the policy,\n    and the device cannot be allocated.",
 	"min":  "Min specifies the minimum capacity allowed for a consumption request.\n\nMin must be greater than or equal to zero, and less than or equal to the capacity value. requestPolicy.default must be more than or equal to the minimum.",
 	"max":  "Max defines the upper limit for capacity that can be requested.\n\nMax must be less than or equal to the capacity value. Min and requestPolicy.default must be less than or equal to the maximum.",
 	"step": "Step defines the step size between valid capacity amounts within the range.\n\nMax (if set) and requestPolicy.default must be a multiple of Step. Min + Step must be less than or equal to the capacity value.",
@@ -333,6 +333,57 @@ func (DeviceTaint) SwaggerDoc() map[string]string {
 	return map_DeviceTaint
 }
 
+var map_DeviceTaintRule = map[string]string{
+	"":         "DeviceTaintRule adds one taint to all devices which match the selector. This has the same effect as if the taint was specified directly in the ResourceSlice by the DRA driver.",
+	"metadata": "Standard object metadata",
+	"spec":     "Spec specifies the selector and one taint.\n\nChanging the spec automatically increments the metadata.generation number.",
+	"status":   "Status provides information about what was requested in the spec.",
+}
+
+func (DeviceTaintRule) SwaggerDoc() map[string]string {
+	return map_DeviceTaintRule
+}
+
+var map_DeviceTaintRuleList = map[string]string{
+	"":         "DeviceTaintRuleList is a collection of DeviceTaintRules.",
+	"metadata": "Standard list metadata",
+	"items":    "Items is the list of DeviceTaintRules.",
+}
+
+func (DeviceTaintRuleList) SwaggerDoc() map[string]string {
+	return map_DeviceTaintRuleList
+}
+
+var map_DeviceTaintRuleSpec = map[string]string{
+	"":               "DeviceTaintRuleSpec specifies the selector and one taint.",
+	"deviceSelector": "DeviceSelector defines which device(s) the taint is applied to. All selector criteria must be satisfied for a device to match. The empty selector matches all devices. Without a selector, no devices are matches.",
+	"taint":          "The taint that gets applied to matching devices.",
+}
+
+func (DeviceTaintRuleSpec) SwaggerDoc() map[string]string {
+	return map_DeviceTaintRuleSpec
+}
+
+var map_DeviceTaintRuleStatus = map[string]string{
+	"":           "DeviceTaintRuleStatus provides information about an on-going pod eviction.",
+	"conditions": "Conditions provide information about the state of the DeviceTaintRule and the cluster at some point in time, in a machine-readable and human-readable format.\n\nThe following condition is currently defined as part of this API, more may get added: - Type: EvictionInProgress - Status: True if there are currently pods which need to be evicted, False otherwise\n  (includes the effects which don't cause eviction).\n- Reason: not specified, may change - Message: includes information about number of pending pods and already evicted pods\n  in a human-readable format, updated periodically, may change\n\nFor `effect: None`, the condition above gets set once for each change to the spec, with the message containing information about what would happen if the effect was `NoExecute`. This feedback can be used to decide whether changing the effect to `NoExecute` will work as intended. It only gets set once to avoid having to constantly update the status.\n\nMust have 8 or fewer entries.",
+}
+
+func (DeviceTaintRuleStatus) SwaggerDoc() map[string]string {
+	return map_DeviceTaintRuleStatus
+}
+
+var map_DeviceTaintSelector = map[string]string{
+	"":       "DeviceTaintSelector defines which device(s) a DeviceTaintRule applies to. The empty selector matches all devices. Without a selector, no devices are matched.",
+	"driver": "If driver is set, only devices from that driver are selected. This fields corresponds to slice.spec.driver.",
+	"pool":   "If pool is set, only devices in that pool are selected.\n\nAlso setting the driver name may be useful to avoid ambiguity when different drivers use the same pool name, but this is not required because selecting pools from different drivers may also be useful, for example when drivers with node-local devices use the node name as their pool name.",
+	"device": "If device is set, only devices with that name are selected. This field corresponds to slice.spec.devices[].name.\n\nSetting also driver and pool may be required to avoid ambiguity, but is not required.",
+}
+
+func (DeviceTaintSelector) SwaggerDoc() map[string]string {
+	return map_DeviceTaintSelector
+}
+
 var map_DeviceToleration = map[string]string{
 	"":                  "The ResourceClaim this DeviceToleration is attached to tolerates any taint that matches the triple <key,value,effect> using the matching operator <operator>.",
 	"key":               "Key is the taint key that the toleration applies to. Empty means match all taint keys. If the key is empty, operator must be Exists; this combination means to match all values and all keys. Must be a label name.",
@@ -477,7 +528,7 @@ func (ResourceClaimTemplateSpec) SwaggerDoc() map[string]string {
 
 var map_ResourcePool = map[string]string{
 	"":                   "ResourcePool describes the pool that ResourceSlices belong to.",
-	"name":               "Name is used to identify the pool. For node-local devices, this is often the node name, but this is not required.\n\nIt must not be longer than 253 characters and must consist of one or more DNS sub-domains separated by slashes. This field is immutable.",
+	"name":               "Name is used to identify the pool. For node-local devices, this is often the node name, but this is not required. A field selector can be used to list only ResourceSlice objects belonging to a certain pool.\n\nIt must not be longer than 253 characters and must consist of one or more DNS sub-domains separated by slashes. This field is immutable.",
 	"generation":         "Generation tracks the change in a pool over time. Whenever a driver changes something about one or more of the resources in a pool, it must change the generation in all ResourceSlices which are part of that pool. Consumers of ResourceSlices should only consider resources from the pool with the highest generation number. The generation may be reset by drivers, which should be fine for consumers, assuming that all ResourceSlices in a pool are updated to match or deleted.\n\nCombined with ResourceSliceCount, this mechanism enables consumers to detect pools which are comprised of multiple ResourceSlices and are in an incomplete state.",
 	"resourceSliceCount": "ResourceSliceCount is the total number of ResourceSlices in the pool at this generation number. Must be greater than zero.\n\nConsumers can use this to check whether they have seen all ResourceSlices belonging to the same pool.",
 }
@@ -516,6 +567,7 @@ var map_ResourceSliceSpec = map[string]string{
 	"devices":                "Devices lists some or all of the devices in this pool.\n\nMust not have more than 128 entries. If any device uses taints or consumes counters the limit is 64.\n\nOnly one of Devices and SharedCounters can be set in a ResourceSlice.",
 	"perDeviceNodeSelection": "PerDeviceNodeSelection defines whether the access from nodes to resources in the pool is set on the ResourceSlice level or on each device. If it is set to true, every device defined the ResourceSlice must specify this individually.\n\nExactly one of NodeName, NodeSelector, AllNodes, and PerDeviceNodeSelection must be set.",
 	"sharedCounters":         "SharedCounters defines a list of counter sets, each of which has a name and a list of counters available.\n\nThe names of the counter sets must be unique in the ResourcePool.\n\nOnly one of Devices and SharedCounters can be set in a ResourceSlice.\n\nThe maximum number of counter sets is 8.",
+	"partitionTypeAttribute": "PartitionTypeAttribute names a string device attribute (by fully qualified name, e.g. \"gpu.example.com/profile\") whose value labels each device with its partition type, such as \"Full\" or \"Half\" for a MIG-style GPU.\n\nWhen set, every partitionable device in the slice must carry the attribute and devices sharing a value must share the same ConsumesCounters cost.",
 }
 
 func (ResourceSliceSpec) SwaggerDoc() map[string]string {

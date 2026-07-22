@@ -44,6 +44,13 @@ const (
 	// Assigns each kube-apiserver an ID in a cluster.
 	APIServerIdentity featuregate.Feature = "APIServerIdentity"
 
+	// owner: @pmengelbert
+	// kep: https://kep.k8s.io/6060
+	//
+	// Controls whether the apiserver supports dispensing tokens for authenticating
+	// the Kubernetes API Server and Aggregated API Servers to webhooks.
+	APIServerWebhookAuthenticationToken featuregate.Feature = "APIServerWebhookAuthenticationToken"
+
 	// owner: @linxiulei
 	//
 	// Enables serving watch requests in separate goroutines.
@@ -150,6 +157,14 @@ const (
 	//
 	// Enables the RangeStream RPC for list operations in etcd.
 	EtcdRangeStream featuregate.Feature = "EtcdRangeStream"
+
+	// owner: @aramase @BenTheElder
+	// kep: https://kep.k8s.io/5793
+	//
+	// Enables excluding the same set of authentication and authorization virtual resources
+	// from ValidatingAdmissionWebhook and MutatingAdmissionWebhook that ValidatingAdmissionPolicy
+	// and MutatingAdmissionPolicy already exclude.
+	ExcludeAdmissionWebhookVirtualResources featuregate.Feature = "ExcludeAdmissionWebhookVirtualResources"
 
 	// owner: @aramase
 	// kep: https://kep.k8s.io/3299
@@ -337,6 +352,7 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
 
 	ConcurrentWatchObjectDecode: {
 		{Version: version.MustParse("1.31"), Default: false, PreRelease: featuregate.Beta},
+		{Version: version.MustParse("1.37"), Default: true, PreRelease: featuregate.Beta},
 	},
 
 	ConsistentListFromCacheSkipTimeoutFallback: {
@@ -373,7 +389,11 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
 	},
 
 	EtcdRangeStream: {
-		{Version: version.MustParse("1.37"), Default: false, PreRelease: featuregate.Beta},
+		{Version: version.MustParse("1.37"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	ExcludeAdmissionWebhookVirtualResources: {
+		{Version: version.MustParse("1.37"), Default: true, PreRelease: featuregate.Beta},
 	},
 
 	KMSv1: {
@@ -389,6 +409,7 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
 
 	ManifestBasedAdmissionControlConfig: {
 		{Version: version.MustParse("1.36"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("1.37"), Default: true, PreRelease: featuregate.Beta},
 	},
 
 	MutatingAdmissionPolicy: {
@@ -467,7 +488,7 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
 	},
 
 	WatchListCompression: {
-		{Version: version.MustParse("1.37"), Default: false, PreRelease: featuregate.Beta},
+		{Version: version.MustParse("1.37"), Default: true, PreRelease: featuregate.Beta},
 	},
 
 	WebhookRoundTripLoadBalancing: {

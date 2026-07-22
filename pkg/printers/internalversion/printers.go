@@ -30,6 +30,7 @@ import (
 	autoscalingv1 "k8s.io/api/autoscaling/v1"
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	batchv1 "k8s.io/api/batch/v1"
+	certificatesv1 "k8s.io/api/certificates/v1"
 	certificatesv1beta1 "k8s.io/api/certificates/v1beta1"
 	coordinationv1 "k8s.io/api/coordination/v1"
 	coordinationv1alpha2 "k8s.io/api/coordination/v1alpha2"
@@ -41,6 +42,7 @@ import (
 	resourceapi "k8s.io/api/resource/v1"
 	schedulingv1 "k8s.io/api/scheduling/v1"
 	schedulingv1alpha3 "k8s.io/api/scheduling/v1alpha3"
+	schedulingv1beta1 "k8s.io/api/scheduling/v1beta1"
 	storagev1 "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -418,19 +420,19 @@ func AddHandlers(h printers.PrintHandler) {
 
 	clusterTrustBundleColumnDefinitions := []metav1.TableColumnDefinition{
 		{Name: "Name", Type: "string", Format: "name", Description: metav1.ObjectMeta{}.SwaggerDoc()["name"]},
-		{Name: "SignerName", Type: "string", Description: certificatesv1beta1.ClusterTrustBundleSpec{}.SwaggerDoc()["signerName"]},
+		{Name: "SignerName", Type: "string", Description: certificatesv1.ClusterTrustBundleSpec{}.SwaggerDoc()["signerName"]},
 	}
 	h.TableHandler(clusterTrustBundleColumnDefinitions, printClusterTrustBundle)
 	h.TableHandler(clusterTrustBundleColumnDefinitions, printClusterTrustBundleList)
 
 	podCertificateRequestColumnDefinitions := []metav1.TableColumnDefinition{
 		{Name: "Name", Type: "string", Format: "name", Description: metav1.ObjectMeta{}.SwaggerDoc()["name"]},
-		{Name: "PodName", Type: "string", Description: certificatesv1beta1.PodCertificateRequestSpec{}.SwaggerDoc()["podName"]},
-		{Name: "ServiceAccountName", Type: "string", Description: certificatesv1beta1.PodCertificateRequestSpec{}.SwaggerDoc()["serviceAccountName"]},
-		{Name: "NodeName", Type: "string", Description: certificatesv1beta1.PodCertificateRequestSpec{}.SwaggerDoc()["nodeName"]},
-		{Name: "SignerName", Type: "string", Description: certificatesv1beta1.PodCertificateRequestSpec{}.SwaggerDoc()["signerName"]},
+		{Name: "PodName", Type: "string", Description: certificatesv1.PodCertificateRequestSpec{}.SwaggerDoc()["podName"]},
+		{Name: "ServiceAccountName", Type: "string", Description: certificatesv1.PodCertificateRequestSpec{}.SwaggerDoc()["serviceAccountName"]},
+		{Name: "NodeName", Type: "string", Description: certificatesv1.PodCertificateRequestSpec{}.SwaggerDoc()["nodeName"]},
+		{Name: "SignerName", Type: "string", Description: certificatesv1.PodCertificateRequestSpec{}.SwaggerDoc()["signerName"]},
 		{Name: "State", Type: "string", Description: "Is the request Pending, Issued, Denied, or Failed?"},
-		{Name: "UnverifiedUserAnnotations", Type: "string", Description: certificatesv1beta1.PodCertificateRequestSpec{}.SwaggerDoc()["unverifiedUserAnnotations"]},
+		{Name: "UnverifiedUserAnnotations", Type: "string", Description: certificatesv1.PodCertificateRequestSpec{}.SwaggerDoc()["unverifiedUserAnnotations"]},
 	}
 	h.TableHandler(podCertificateRequestColumnDefinitions, printPodCertificateRequest)
 	h.TableHandler(podCertificateRequestColumnDefinitions, printPodCertificateRequestList)
@@ -762,13 +764,22 @@ func AddHandlers(h printers.PrintHandler) {
 
 	podGroupColumnDefinitions := []metav1.TableColumnDefinition{
 		{Name: "Name", Type: "string", Format: "name", Description: metav1.ObjectMeta{}.SwaggerDoc()["name"]},
-		{Name: "Policy", Type: "string", Description: schedulingv1alpha3.PodGroupSpec{}.SwaggerDoc()["schedulingPolicy"]},
+		{Name: "Policy", Type: "string", Description: schedulingv1beta1.PodGroupSpec{}.SwaggerDoc()["schedulingPolicy"]},
 		{Name: "Workload", Type: "string", Description: "Name of the referenced Workload object"},
 		{Name: "Status", Type: "string", Description: "Status of the PodGroup"},
 		{Name: "Age", Type: "string", Description: metav1.ObjectMeta{}.SwaggerDoc()["creationTimestamp"]},
 	}
 	_ = h.TableHandler(podGroupColumnDefinitions, printPodGroup)
 	_ = h.TableHandler(podGroupColumnDefinitions, printPodGroupList)
+
+	compositePodGroupColumnDefinitions := []metav1.TableColumnDefinition{
+		{Name: "Name", Type: "string", Format: "name", Description: metav1.ObjectMeta{}.SwaggerDoc()["name"]},
+		{Name: "Policy", Type: "string", Description: schedulingv1alpha3.CompositePodGroupSpec{}.SwaggerDoc()["schedulingPolicy"]},
+		{Name: "Workload", Type: "string", Description: "Name of the referenced Workload object"},
+		{Name: "Age", Type: "string", Description: metav1.ObjectMeta{}.SwaggerDoc()["creationTimestamp"]},
+	}
+	_ = h.TableHandler(compositePodGroupColumnDefinitions, printCompositePodGroup)
+	_ = h.TableHandler(compositePodGroupColumnDefinitions, printCompositePodGroupList)
 }
 
 // Pass ports=nil for all ports.
@@ -3524,6 +3535,38 @@ func printPodGroupList(list *scheduling.PodGroupList, options printers.GenerateO
 	rows := make([]metav1.TableRow, 0, len(list.Items))
 	for i := range list.Items {
 		r, err := printPodGroup(&list.Items[i], options)
+		if err != nil {
+			return nil, err
+		}
+		rows = append(rows, r...)
+	}
+	return rows, nil
+}
+
+func printCompositePodGroup(obj *scheduling.CompositePodGroup, options printers.GenerateOptions) ([]metav1.TableRow, error) {
+	row := metav1.TableRow{
+		Object: runtime.RawExtension{Object: obj},
+	}
+
+	policy := "Basic"
+	if obj.Spec.SchedulingPolicy.Gang != nil {
+		policy = "Gang"
+	}
+
+	workload := "<none>"
+	if ref := obj.Spec.WorkloadRef; ref != nil {
+		workload = ref.WorkloadName
+	}
+
+	row.Cells = append(row.Cells, obj.Name, policy, workload, translateTimestampSince(obj.CreationTimestamp))
+
+	return []metav1.TableRow{row}, nil
+}
+
+func printCompositePodGroupList(list *scheduling.CompositePodGroupList, options printers.GenerateOptions) ([]metav1.TableRow, error) {
+	rows := make([]metav1.TableRow, 0, len(list.Items))
+	for i := range list.Items {
+		r, err := printCompositePodGroup(&list.Items[i], options)
 		if err != nil {
 			return nil, err
 		}

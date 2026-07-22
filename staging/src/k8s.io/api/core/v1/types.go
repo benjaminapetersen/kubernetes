@@ -679,7 +679,7 @@ const (
 	// slightly longer than actual in-use time or unused time because of processing delays or
 	// when this feature was enabled in the cluster.
 	//
-	// Requires PersistentVolumeClaimUnusedSinceTime alpha featuregate
+	// Requires PersistentVolumeClaimUnusedSinceTime beta featuregate
 	PersistentVolumeClaimUnused PersistentVolumeClaimConditionType = "Unused"
 )
 
@@ -763,6 +763,95 @@ type PersistentVolumeClaimCondition struct {
 	// message is the human-readable message indicating details about last transition.
 	// +optional
 	Message string `json:"message,omitempty" protobuf:"bytes,6,opt,name=message"`
+}
+
+// VolumeHealthStatusType describes the health status category of a volume.
+// +enum
+// +k8s:enum
+type VolumeHealthStatusType string
+
+const (
+	// VolumeHealthInaccessible indicates the volume cannot be accessed.
+	VolumeHealthInaccessible VolumeHealthStatusType = "Inaccessible"
+	// VolumeHealthDataLoss indicates data loss has been detected on the volume.
+	VolumeHealthDataLoss VolumeHealthStatusType = "DataLoss"
+	// VolumeHealthDegraded indicates the volume is functioning but with reduced capability.
+	VolumeHealthDegraded VolumeHealthStatusType = "Degraded"
+)
+
+// VolumeHealthCondition represents an adverse health condition reported for a volume.
+type VolumeHealthCondition struct {
+	// status is the machine-parseable health category.
+	// Possible values:
+	// - "Inaccessible": the volume cannot be accessed.
+	// - "DataLoss": data loss has been detected on the volume.
+	// - "Degraded": the volume is functioning with reduced capability.
+	// +required
+	// +k8s:required
+	Status VolumeHealthStatusType `json:"status" protobuf:"bytes,1,opt,name=status,casttype=VolumeHealthStatusType"`
+	// reason is a brief CamelCase machine-parseable reason.
+	// Together with status it forms the unique identity of a condition entry.
+	// Maximum permitted length of a reason is 256 bytes.
+	// +required
+	// +k8s:required
+	// +k8s:maxBytes=256
+	Reason string `json:"reason" protobuf:"bytes,2,opt,name=reason"`
+	// message is a human-readable description.
+	// Maximum permitted length of a message is 1024 bytes.
+	// +optional
+	// +k8s:optional
+	// +k8s:maxBytes=1024
+	Message string `json:"message,omitempty" protobuf:"bytes,3,opt,name=message"`
+}
+
+// VolumeHealthStatus contains health information for a volume reported
+// by the CSI controller plugin.
+type VolumeHealthStatus struct {
+	// conditions is the set of adverse conditions reported by
+	// the CSI controller plugin. An empty list means no adverse condition.
+	// At most 16 conditions may be reported.
+	// +optional
+	// +listType=map
+	// +listMapKey=status
+	// +patchMergeKey=status
+	// +patchStrategy=merge
+	// +listMapKey=reason
+	// +k8s:optional
+	// +k8s:listType=map
+	// +k8s:listMapKey=status
+	// +k8s:listMapKey=reason
+	// +k8s:maxItems=16
+	HealthConditions []VolumeHealthCondition `json:"healthConditions,omitempty" patchStrategy:"merge" patchMergeKey:"status" protobuf:"bytes,1,rep,name=healthConditions"`
+	// lastTransitionTime is when the current set of conditions first appeared.
+	// +optional
+	LastTransitionTime metav1.Time `json:"lastTransitionTime,omitempty" protobuf:"bytes,2,opt,name=lastTransitionTime"`
+}
+
+// PodVolumeHealth contains health information for a volume used by a pod,
+// reported by the CSI node plugin via the kubelet.
+type PodVolumeHealth struct {
+	// name matches an entry in pod.spec.volumes.
+	// +required
+	// +k8s:required
+	Name string `json:"name" protobuf:"bytes,1,opt,name=name"`
+	// conditions is the set of adverse conditions reported by
+	// the CSI node plugin for this volume on this node.
+	// At most 16 conditions may be reported.
+	// +optional
+	// +listType=map
+	// +listMapKey=status
+	// +patchMergeKey=status
+	// +patchStrategy=merge
+	// +listMapKey=reason
+	// +k8s:optional
+	// +k8s:listType=map
+	// +k8s:listMapKey=status
+	// +k8s:listMapKey=reason
+	// +k8s:maxItems=16
+	HealthConditions []VolumeHealthCondition `json:"healthConditions,omitempty" patchStrategy:"merge" patchMergeKey:"status" protobuf:"bytes,2,rep,name=healthConditions"`
+	// lastTransitionTime is when the current set of conditions first appeared.
+	// +optional
+	LastTransitionTime metav1.Time `json:"lastTransitionTime,omitempty" protobuf:"bytes,3,opt,name=lastTransitionTime"`
 }
 
 // PersistentVolumeClaimStatus is the current status of a persistent volume claim.
@@ -858,6 +947,12 @@ type PersistentVolumeClaimStatus struct {
 	// +featureGate=VolumeAttributesClass
 	// +optional
 	ModifyVolumeStatus *ModifyVolumeStatus `json:"modifyVolumeStatus,omitempty" protobuf:"bytes,9,opt,name=modifyVolumeStatus"`
+	// healthStatus contains the latest controller-reported health information
+	// for the volume bound to this claim.
+	// +featureGate=CSIVolumeHealth
+	// +optional
+	// +k8s:optional
+	HealthStatus *VolumeHealthStatus `json:"healthStatus,omitempty" protobuf:"bytes,10,opt,name=healthStatus"`
 }
 
 // +enum
@@ -1455,6 +1550,12 @@ type SecretVolumeSource struct {
 	// optional field specify whether the Secret or its keys must be defined
 	// +optional
 	Optional *bool `json:"optional,omitempty" protobuf:"varint,4,opt,name=optional"`
+	// defaultUser is Optional: The owner UID of the created files by default.
+	// The defaultUser field is only used as a fallback when the item-level user field is unset.
+	// (Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.
+	// +featureGate=AtomicWriteVolumeUserFields
+	// +optional
+	DefaultUser *int64 `json:"defaultUser,omitempty" protobuf:"varint,5,opt,name=defaultUser"`
 }
 
 const (
@@ -1901,6 +2002,12 @@ type ConfigMapVolumeSource struct {
 	// optional specify whether the ConfigMap or its keys must be defined
 	// +optional
 	Optional *bool `json:"optional,omitempty" protobuf:"varint,4,opt,name=optional"`
+	// defaultUser is Optional: The owner UID of the created files by default.
+	// The defaultUser field is only used as a fallback when the item-level user field is unset.
+	// (Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.
+	// +featureGate=AtomicWriteVolumeUserFields
+	// +optional
+	DefaultUser *int64 `json:"defaultUser,omitempty" protobuf:"varint,5,opt,name=defaultUser"`
 }
 
 const (
@@ -1953,6 +2060,12 @@ type ServiceAccountTokenProjection struct {
 	// path is the path relative to the mount point of the file to project the
 	// token into.
 	Path string `json:"path" protobuf:"bytes,3,opt,name=path"`
+	// user is Optional: The owner UID of the created file.
+	// If specified, the item-level user field takes precedence over defaultUser.
+	// (Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.
+	// +featureGate=AtomicWriteVolumeUserFields
+	// +optional
+	User *int64 `json:"user,omitempty" protobuf:"varint,4,opt,name=user"`
 }
 
 // ClusterTrustBundleProjection describes how to select a set of
@@ -1987,6 +2100,13 @@ type ClusterTrustBundleProjection struct {
 
 	// Relative path from the volume root to write the bundle.
 	Path string `json:"path" protobuf:"bytes,4,rep,name=path"`
+
+	// user is Optional: The owner UID of the created file.
+	// If specified, the item-level user field takes precedence over defaultUser.
+	// (Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.
+	// +featureGate=AtomicWriteVolumeUserFields
+	// +optional
+	User *int64 `json:"user,omitempty" protobuf:"varint,6,opt,name=user"`
 }
 
 // PodCertificateProjection provides a private key and X.509 certificate in the
@@ -2075,6 +2195,13 @@ type PodCertificateProjection struct {
 	// Signers should document the keys and values they support. Signers should
 	// deny requests that contain keys they do not recognize.
 	UserAnnotations map[string]string `json:"userAnnotations,omitempty" protobuf:"bytes,7,rep,name=userAnnotations"`
+
+	// user is Optional: The owner UID of the created file.
+	// If specified, the item-level user field takes precedence over defaultUser.
+	// (Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.
+	// +featureGate=AtomicWriteVolumeUserFields
+	// +optional
+	User *int64 `json:"user,omitempty" protobuf:"varint,8,opt,name=user"`
 }
 
 // Represents a projected volume source
@@ -2092,6 +2219,12 @@ type ProjectedVolumeSource struct {
 	// mode, like fsGroup, and the result can be other mode bits set.
 	// +optional
 	DefaultMode *int32 `json:"defaultMode,omitempty" protobuf:"varint,2,opt,name=defaultMode"`
+	// defaultUser is Optional: The owner UID of the created files by default.
+	// The defaultUser field is only used as a fallback when the item-level user field is unset.
+	// (Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.
+	// +featureGate=AtomicWriteVolumeUserFields
+	// +optional
+	DefaultUser *int64 `json:"defaultUser,omitempty" protobuf:"varint,3,opt,name=defaultUser"`
 }
 
 // Projection that may be projected along with other supported volume types.
@@ -2190,6 +2323,12 @@ type KeyToPath struct {
 	// mode, like fsGroup, and the result can be other mode bits set.
 	// +optional
 	Mode *int32 `json:"mode,omitempty" protobuf:"varint,3,opt,name=mode"`
+	// user is Optional: The owner UID of the created file.
+	// If specified, the item-level user field takes precedence over defaultUser.
+	// (Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.
+	// +featureGate=AtomicWriteVolumeUserFields
+	// +optional
+	User *int64 `json:"user,omitempty" protobuf:"varint,4,opt,name=user"`
 }
 
 // Local represents directly-attached storage with node affinity
@@ -2340,6 +2479,7 @@ type PersistentVolumeClaimTemplate struct {
 	// validation.
 	//
 	// +optional
+	// +k8s:opaqueType
 	metav1.ObjectMeta `json:"metadata,omitempty" protobuf:"bytes,1,opt,name=metadata"`
 
 	// The specification for the PersistentVolumeClaim. The entire content is
@@ -2642,6 +2782,19 @@ type HTTPHeader struct {
 	Value string `json:"value" protobuf:"bytes,2,opt,name=value"`
 }
 
+// HTTPProtocol selects the wire protocol for the HTTP probe,
+// independently of the URI scheme.
+// +enum
+type HTTPProtocol string
+
+const (
+	// HTTPProtocolHTTP1 uses HTTP/1.1 (the existing default).
+	HTTPProtocolHTTP1 HTTPProtocol = "HTTP1"
+	// HTTPProtocolHTTP2 uses HTTP/2.
+	// Currently, only cleartext with prior knowledge (h2c) is supported, and must be used with scheme HTTP.
+	HTTPProtocolHTTP2 HTTPProtocol = "HTTP2"
+)
+
 // HTTPGetAction describes an action based on HTTP Get requests.
 type HTTPGetAction struct {
 	// Path to access on the HTTP server.
@@ -2663,6 +2816,11 @@ type HTTPGetAction struct {
 	// +optional
 	// +listType=atomic
 	HTTPHeaders []HTTPHeader `json:"httpHeaders,omitempty" protobuf:"bytes,5,rep,name=httpHeaders"`
+	// Protocol selects the wire protocol for the probe connection.
+	// Nil defaults to HTTP/1.1.
+	// +optional
+	// +featureGate=H2CContainerProbe
+	Protocol *HTTPProtocol `json:"protocol,omitempty" protobuf:"bytes,6,opt,name=protocol,casttype=HTTPProtocol"`
 }
 
 // URIScheme identifies the scheme used for connection to a host for Get actions
@@ -5476,6 +5634,17 @@ type PodStatus struct {
 	// +optional
 	// +listType=atomic
 	NodeAllocatableResourceClaimStatuses []NodeAllocatableResourceClaimStatus `json:"nodeAllocatableResourceClaimStatuses,omitempty" protobuf:"bytes,21,rep,name=nodeAllocatableResourceClaimStatuses"`
+
+	// volumeHealth contains node-reported health for each volume the pod is using.
+	// Populated by the kubelet on the pod's node.
+	// +featureGate=CSIVolumeHealth
+	// +optional
+	// +listType=map
+	// +listMapKey=name
+	// +k8s:optional
+	// +k8s:listType=map
+	// +k8s:listMapKey=name
+	VolumeHealth []PodVolumeHealth `json:"volumeHealth,omitempty" protobuf:"bytes,22,rep,name=volumeHealth"`
 }
 
 // +genclient
@@ -5532,6 +5701,7 @@ type PodTemplateSpec struct {
 	// Standard object's metadata.
 	// More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#metadata
 	// +optional
+	// +k8s:opaqueType
 	metav1.ObjectMeta `json:"metadata,omitempty" protobuf:"bytes,1,opt,name=metadata"`
 
 	// Specification of the desired behavior of the pod.
@@ -5580,18 +5750,18 @@ type ReplicationControllerSpec struct {
 	// Defaults to 1.
 	// More info: https://kubernetes.io/docs/concepts/workloads/controllers/replicationcontroller#what-is-a-replicationcontroller
 	// +optional
-	// +k8s:alpha(since: "1.36")=+k8s:optional
+	// +k8s:beta(since: "1.37")=+k8s:optional
 	// +default=1
-	// +k8s:alpha(since: "1.36")=+k8s:minimum=0
+	// +k8s:beta(since: "1.37")=+k8s:minimum=0
 	Replicas *int32 `json:"replicas,omitempty" protobuf:"varint,1,opt,name=replicas"`
 
 	// Minimum number of seconds for which a newly created pod should be ready
 	// without any of its container crashing, for it to be considered available.
 	// Defaults to 0 (pod will be considered available as soon as it is ready)
 	// +optional
-	// +k8s:alpha(since: "1.36")=+k8s:optional
+	// +k8s:beta(since: "1.37")=+k8s:optional
 	// +default=0
-	// +k8s:alpha(since: "1.36")=+k8s:minimum=0
+	// +k8s:beta(since: "1.37")=+k8s:minimum=0
 	MinReadySeconds int32 `json:"minReadySeconds,omitempty" protobuf:"varint,4,opt,name=minReadySeconds"`
 
 	// Selector is a label query over pods that should match the Replicas count.
@@ -5693,8 +5863,8 @@ type ReplicationController struct {
 	// be the same as the Pod(s) that the replication controller manages.
 	// Standard object's metadata. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#metadata
 	// +optional
-	// +k8s:alpha(since: "1.36")=+k8s:subfield(name)=+k8s:optional
-	// +k8s:alpha(since: "1.36")=+k8s:subfield(name)=+k8s:format=k8s-long-name
+	// +k8s:beta(since: "1.37")=+k8s:subfield(name)=+k8s:optional
+	// +k8s:beta(since: "1.37")=+k8s:subfield(name)=+k8s:format=k8s-long-name
 	metav1.ObjectMeta `json:"metadata,omitempty" protobuf:"bytes,1,opt,name=metadata"`
 
 	// Spec defines the specification of the desired behavior of the replication controller.
@@ -6569,6 +6739,29 @@ type NodeSpec struct {
 	// see: https://issues.k8s.io/61966
 	// +optional
 	DoNotUseExternalID string `json:"externalID,omitempty" protobuf:"bytes,2,opt,name=externalID"`
+
+	// PodPreemptionPolicy controls the node-level preemption behaviors for pods on this node.
+	// This is an alpha field and requires enabling the InPlacePodVerticalScalingSchedulerPreemption feature gate.
+	// +featureGate=InPlacePodVerticalScalingSchedulerPreemption
+	// +optional
+	// +k8s:optional
+	// +k8s:ifDisabled(InPlacePodVerticalScalingSchedulerPreemption)=+k8s:forbidden
+	PodPreemptionPolicy *NodePodPreemptionPolicy `json:"podPreemptionPolicy,omitempty" protobuf:"bytes,8,opt,name=podPreemptionPolicy"`
+}
+
+// NodePodPreemptionPolicy defines the node-level policies governing preemption for pods on this node.
+type NodePodPreemptionPolicy struct {
+	// DisableResizePreemption lists the owners (e.g., autoscalers, operators, administrators)
+	// that have requested to disable scheduler and Kubelet preemption for in-place pod resize on this node.
+	// If this list is non-empty, resize-induced preemption is disabled on this node.
+	// This is an alpha field and requires enabling the InPlacePodVerticalScalingSchedulerPreemption feature gate.
+	// +listType=set
+	// +k8s:listType=set
+	// +optional
+	// +k8s:maxItems=20
+	// +k8s:optional
+	// +k8s:eachVal=+k8s:format=k8s-label-key
+	DisableResizePreemption []string `json:"disableResizePreemption,omitempty" protobuf:"bytes,1,rep,name=disableResizePreemption"`
 }
 
 // NodeConfigSource specifies a source of node configuration. Exactly one subfield (excluding metadata) must be non-nil.
@@ -6909,6 +7102,37 @@ const (
 	NodePIDPressure NodeConditionType = "PIDPressure"
 	// NodeNetworkUnavailable means that network for the node is not correctly configured.
 	NodeNetworkUnavailable NodeConditionType = "NetworkUnavailable"
+	// NodeGracefulNodeShutdownInProgress reports whether Graceful Node Shutdown is determined to be in progress on this Node.
+	//
+	// The admin is responsible for setting and clearing this condition.
+	NodeGracefulNodeShutdownInProgress NodeConditionType = "GracefulNodeShutdownInProgress"
+	// NodeDrainInProgress reports that this Node is actively being drained,
+	// according to the admin's definition of drain.
+	// Commonly, this involves removing some amount of Pods, volumes, and networks.
+	//
+	// The admin is responsible for setting and clearing this condition.
+	NodeDrainInProgress NodeConditionType = "DrainInProgress"
+	// NodeDrained reports that this Node has reached the drain criteria selected by the admin.
+	//
+	// The admin is responsible for setting and clearing this condition.
+	NodeDrained NodeConditionType = "Drained"
+	// NodeMaintenancePlanned reports that this Node is expected to undergo a change in the future.
+	// If this change impacts Node users, the admin should drain the Node first.
+	//
+	// Admins can use the Node maintenance condition for cases like hardware or software rollout,
+	// remediation, decommissioning, or debugging.
+	//
+	// The admin is responsible for setting and clearing this condition.
+	NodeMaintenancePlanned NodeConditionType = "MaintenancePlanned"
+	// NodeMaintenanceInProgress reports that this Node is actively undergoing maintenance.
+	//
+	// The admin decides whether the change will impact Node users and require a Node drain.
+	// For example, it is recommended to drain a Node before a Kubernetes upgrade.
+	// In contrast, a kernel live patch may not require a Node drain, but it can still be useful
+	// to communicate that maintenance is in progress.
+	//
+	// The admin is responsible for setting and clearing this condition.
+	NodeMaintenanceInProgress NodeConditionType = "MaintenanceInProgress"
 )
 
 // NodeCondition contains condition information for a node.
@@ -7151,6 +7375,7 @@ type NamespaceCondition struct {
 // Namespace provides a scope for Names.
 // Use of multiple namespaces is optional.
 // +k8s:supportsSubresource="/status"
+// +k8s:supportsSubresource="/finalize"
 type Namespace struct {
 	metav1.TypeMeta `json:""`
 	// Standard object's metadata.
@@ -7194,6 +7419,7 @@ type Binding struct {
 	// Standard object's metadata.
 	// More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#metadata
 	// +optional
+	// +k8s:opaqueType
 	metav1.ObjectMeta `json:"metadata,omitempty" protobuf:"bytes,1,opt,name=metadata"`
 
 	// The target object that you want to bind to the standard object.
@@ -8160,6 +8386,7 @@ type ComponentStatus struct {
 	// Standard object's metadata.
 	// More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#metadata
 	// +optional
+	// +k8s:opaqueType
 	metav1.ObjectMeta `json:"metadata,omitempty" protobuf:"bytes,1,opt,name=metadata"`
 
 	// List of component conditions observed
@@ -8204,6 +8431,12 @@ type DownwardAPIVolumeSource struct {
 	// mode, like fsGroup, and the result can be other mode bits set.
 	// +optional
 	DefaultMode *int32 `json:"defaultMode,omitempty" protobuf:"varint,2,opt,name=defaultMode"`
+	// defaultUser is Optional: The owner UID of the created files by default.
+	// The defaultUser field is only used as a fallback when the item-level user field is unset.
+	// (Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.
+	// +featureGate=AtomicWriteVolumeUserFields
+	// +optional
+	DefaultUser *int64 `json:"defaultUser,omitempty" protobuf:"varint,3,opt,name=defaultUser"`
 }
 
 const (
@@ -8229,6 +8462,12 @@ type DownwardAPIVolumeFile struct {
 	// mode, like fsGroup, and the result can be other mode bits set.
 	// +optional
 	Mode *int32 `json:"mode,omitempty" protobuf:"varint,4,opt,name=mode"`
+	// user is Optional: The owner UID of the created file.
+	// If specified, the item-level user field takes precedence over defaultUser.
+	// (Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.
+	// +featureGate=AtomicWriteVolumeUserFields
+	// +optional
+	User *int64 `json:"user,omitempty" protobuf:"varint,5,opt,name=user"`
 }
 
 // Represents downward API info for projecting into a projected volume.
@@ -8391,6 +8630,7 @@ type RangeAllocation struct {
 	// Standard object's metadata.
 	// More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#metadata
 	// +optional
+	// +k8s:opaqueType
 	metav1.ObjectMeta `json:"metadata,omitempty" protobuf:"bytes,1,opt,name=metadata"`
 
 	// Range is string that identifies the range represented by 'data'.

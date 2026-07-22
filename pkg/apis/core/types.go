@@ -258,19 +258,10 @@ type PersistentVolumeSource struct {
 	// Deprecated: RBD is deprecated and the in-tree rbd type is no longer supported.
 	// +optional
 	RBD *RBDPersistentVolumeSource
-	// quobyte represents a Quobyte mount on the host that shares a pod's lifetime.
-	// Deprecated: Quobyte is deprecated and the in-tree quobyte type is no longer supported.
-	// +optional
-	Quobyte *QuobyteVolumeSource
 	// iscsi represents an ISCSI resource that is attached to a
 	// kubelet's host machine and then exposed to the pod.
 	// +optional
 	ISCSI *ISCSIPersistentVolumeSource
-	// flexVolume represents a generic volume resource that is
-	// provisioned/attached using an exec based plugin.
-	// Deprecated: FlexVolume is deprecated. Consider using a CSIDriver instead.
-	// +optional
-	FlexVolume *FlexPersistentVolumeSource
 	// cinder represents a cinder volume attached and mounted on kubelets host machine.
 	// Deprecated: Cinder is deprecated. All operations for the in-tree cinder type
 	// are redirected to the cinder.csi.openstack.org CSI driver.
@@ -284,19 +275,33 @@ type PersistentVolumeSource struct {
 	// +optional
 	FC *FCVolumeSource
 	// flocker represents a Flocker volume attached to a kubelet's host machine and exposed to the pod for its usage. This depends on the Flocker control service being running.
+	//
 	// Deprecated: Flocker is deprecated and the in-tree flocker type is no longer supported.
 	// +optional
 	Flocker *FlockerVolumeSource
+	// flexVolume represents a generic volume resource that is
+	// provisioned/attached using an exec based plugin.
+	//
+	// Deprecated: FlexVolume is deprecated. Consider using a CSIDriver instead.
+	// +optional
+	FlexVolume *FlexPersistentVolumeSource
 	// azureFile represents an Azure File Service mount on the host and bind mount to the pod.
+	//
 	// Deprecated: AzureFile is deprecated. All operations for the in-tree azureFile type
 	// are redirected to the file.csi.azure.com CSI driver.
 	// +optional
 	AzureFile *AzureFilePersistentVolumeSource
 	// vsphereVolume represents a vSphere volume attached and mounted on kubelets host machine.
+	//
 	// Deprecated: VsphereVolume is deprecated. All operations for the in-tree vsphereVolume type
 	// are redirected to the csi.vsphere.vmware.com CSI driver.
 	// +optional
 	VsphereVolume *VsphereVirtualDiskVolumeSource
+	// quobyte represents a Quobyte mount on the host that shares a pod's lifetime.
+	//
+	// Deprecated: Quobyte is deprecated and the in-tree quobyte type is no longer supported.
+	// +optional
+	Quobyte *QuobyteVolumeSource
 	// azureDisk represents an Azure Data Disk mount on the host and bind mount to the pod.
 	// Deprecated: AzureDisk is deprecated. All operations for the in-tree azureDisk type
 	// are redirected to the disk.csi.azure.com CSI driver.
@@ -625,7 +630,7 @@ const (
 	// slightly longer than actual in-use time or unused time because of processing delays or
 	// when this feature was enabled in the cluster.
 	//
-	// Requires PersistentVolumeClaimUnusedSinceTime alpha featuregate
+	// Requires PersistentVolumeClaimUnusedSinceTime beta featuregate
 	PersistentVolumeClaimUnused PersistentVolumeClaimConditionType = "Unused"
 )
 
@@ -698,6 +703,68 @@ type PersistentVolumeClaimCondition struct {
 	Reason string
 	// +optional
 	Message string
+}
+
+// VolumeHealthStatusType describes the health status category of a volume.
+type VolumeHealthStatusType string
+
+const (
+	// VolumeHealthInaccessible indicates the volume cannot be accessed.
+	VolumeHealthInaccessible VolumeHealthStatusType = "Inaccessible"
+	// VolumeHealthDataLoss indicates data loss has been detected on the volume.
+	VolumeHealthDataLoss VolumeHealthStatusType = "DataLoss"
+	// VolumeHealthDegraded indicates the volume is functioning but with reduced capability.
+	VolumeHealthDegraded VolumeHealthStatusType = "Degraded"
+)
+
+// VolumeHealthCondition represents an adverse health condition reported for a volume.
+type VolumeHealthCondition struct {
+	// status is the machine-parseable health category.
+	// Possible values:
+	// - "Inaccessible": the volume cannot be accessed.
+	// - "DataLoss": data loss has been detected on the volume.
+	// - "Degraded": the volume is functioning with reduced capability.
+	Status VolumeHealthStatusType
+	// reason is a brief CamelCase machine-parseable reason.
+	// Together with status it forms the unique identity of a condition entry.
+	Reason string
+	// message is a human-readable description.
+	// +optional
+	Message string
+}
+
+// VolumeHealthStatus contains health information for a volume reported
+// by the CSI controller plugin.
+type VolumeHealthStatus struct {
+	// conditions is the set of adverse conditions reported by
+	// the CSI controller plugin. An empty list means no adverse condition.
+	// At most 16 conditions may be reported.
+	// +optional
+	// +listType=map
+	// +listMapKey=status
+	// +listMapKey=reason
+	HealthConditions []VolumeHealthCondition
+	// lastTransitionTime is when the current set of conditions first appeared.
+	// +optional
+	LastTransitionTime metav1.Time
+}
+
+// PodVolumeHealth contains health information for a volume used by a pod,
+// reported by the CSI node plugin via the kubelet.
+type PodVolumeHealth struct {
+	// name matches an entry in pod.spec.volumes.
+	Name string
+	// conditions is the set of adverse conditions reported by
+	// the CSI node plugin for this volume on this node.
+	// At most 16 conditions may be reported.
+	// +optional
+	// +listType=map
+	// +listMapKey=status
+	// +listMapKey=reason
+	HealthConditions []VolumeHealthCondition
+	// lastTransitionTime is when the current set of conditions first appeared.
+	// +optional
+	LastTransitionTime metav1.Time
 }
 
 // PersistentVolumeClaimStatus represents the status of PV claim
@@ -781,6 +848,11 @@ type PersistentVolumeClaimStatus struct {
 	// +featureGate=VolumeAttributesClass
 	// +optional
 	ModifyVolumeStatus *ModifyVolumeStatus
+	// healthStatus contains the latest controller-reported health information
+	// for the volume bound to this claim.
+	// +featureGate=CSIVolumeHealth
+	// +optional
+	HealthStatus *VolumeHealthStatus
 }
 
 // PersistentVolumeAccessMode defines various access modes for PV.
@@ -1188,6 +1260,12 @@ type SecretVolumeSource struct {
 	// Specify whether the Secret or its key must be defined
 	// +optional
 	Optional *bool
+	// The owner UID of the created files by default.
+	// The defaultUser field is only used as a fallback when the item-level user field is unset.
+	// (Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.
+	// +featureGate=AtomicWriteVolumeUserFields
+	// +optional
+	DefaultUser *int64
 }
 
 // SecretProjection adapts a secret into a projected volume.
@@ -1487,6 +1565,12 @@ type DownwardAPIVolumeSource struct {
 	// mode, like fsGroup, and the result can be other mode bits set.
 	// +optional
 	DefaultMode *int32
+	// The owner UID of the created files by default.
+	// The defaultUser field is only used as a fallback when the item-level user field is unset.
+	// (Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.
+	// +featureGate=AtomicWriteVolumeUserFields
+	// +optional
+	DefaultUser *int64
 }
 
 // DownwardAPIVolumeFile represents a single file containing information from the downward API
@@ -1506,6 +1590,12 @@ type DownwardAPIVolumeFile struct {
 	// mode, like fsGroup, and the result can be other mode bits set.
 	// +optional
 	Mode *int32
+	// The owner UID of the created file.
+	// If specified, the item-level user field takes precedence over defaultUser.
+	// (Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.
+	// +featureGate=AtomicWriteVolumeUserFields
+	// +optional
+	User *int64
 }
 
 // DownwardAPIProjection represents downward API info for projecting into a projected volume.
@@ -1784,6 +1874,12 @@ type ConfigMapVolumeSource struct {
 	// Specify whether the ConfigMap or its keys must be defined
 	// +optional
 	Optional *bool
+	// The owner UID of the created files by default.
+	// The defaultUser field is only used as a fallback when the item-level user field is unset.
+	// (Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.
+	// +featureGate=AtomicWriteVolumeUserFields
+	// +optional
+	DefaultUser *int64
 }
 
 // ConfigMapProjection adapts a ConfigMap into a projected volume.
@@ -1830,6 +1926,12 @@ type ServiceAccountTokenProjection struct {
 	// Path is the path relative to the mount point of the file to project the
 	// token into.
 	Path string
+	// The owner UID of the created file.
+	// If specified, the item-level user field takes precedence over defaultUser.
+	// (Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.
+	// +featureGate=AtomicWriteVolumeUserFields
+	// +optional
+	User *int64
 }
 
 // ClusterTrustBundleProjection allows a pod to access the
@@ -1853,6 +1955,13 @@ type ClusterTrustBundleProjection struct {
 
 	// Relative path from the volume root to write the bundle.
 	Path string
+
+	// The owner UID of the created file.
+	// If specified, the item-level user field takes precedence over defaultUser.
+	// (Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.
+	// +featureGate=AtomicWriteVolumeUserFields
+	// +optional
+	User *int64
 }
 
 // PodCertificateProjection provides a private key and X.509 certificate in
@@ -1923,6 +2032,13 @@ type PodCertificateProjection struct {
 	// Signers should document the keys and values they support. Signers should
 	// deny requests that contain keys they do not recognize.
 	UserAnnotations map[string]string
+
+	// The owner UID of the created file.
+	// If specified, the item-level user field takes precedence over defaultUser.
+	// (Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.
+	// +featureGate=AtomicWriteVolumeUserFields
+	// +optional
+	User *int64
 }
 
 // ProjectedVolumeSource represents a projected volume source
@@ -1936,6 +2052,12 @@ type ProjectedVolumeSource struct {
 	// mode, like fsGroup, and the result can be other mode bits set.
 	// +optional
 	DefaultMode *int32
+	// The owner UID of the created files by default.
+	// The defaultUser field is only used as a fallback when the item-level user field is unset.
+	// (Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.
+	// +featureGate=AtomicWriteVolumeUserFields
+	// +optional
+	DefaultUser *int64
 }
 
 // VolumeProjection that may be projected along with other supported volume types
@@ -1972,6 +2094,12 @@ type KeyToPath struct {
 	// mode, like fsGroup, and the result can be other mode bits set.
 	// +optional
 	Mode *int32
+	// The owner UID of the created file.
+	// If specified, the item-level user field takes precedence over defaultUser.
+	// (Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.
+	// +featureGate=AtomicWriteVolumeUserFields
+	// +optional
+	User *int64
 }
 
 // LocalVolumeSource represents directly-attached storage with node affinity
@@ -2408,6 +2536,18 @@ type HTTPHeader struct {
 	Value string
 }
 
+// HTTPProtocol selects the wire protocol for the HTTP probe,
+// independently of the URI scheme.
+type HTTPProtocol string
+
+const (
+	// HTTPProtocolHTTP1 uses HTTP/1.1 (the existing default).
+	HTTPProtocolHTTP1 HTTPProtocol = "HTTP1"
+	// HTTPProtocolHTTP2 uses HTTP/2.
+	// Currently, only cleartext with prior knowledge (h2c) is supported, and must be used with scheme HTTP.
+	HTTPProtocolHTTP2 HTTPProtocol = "HTTP2"
+)
+
 // HTTPGetAction describes an action based on HTTP Get requests.
 type HTTPGetAction struct {
 	// Optional: Path to access on the HTTP server.
@@ -2426,6 +2566,10 @@ type HTTPGetAction struct {
 	// Optional: Custom headers to set in the request. HTTP allows repeated headers.
 	// +optional
 	HTTPHeaders []HTTPHeader
+	// Protocol selects the wire protocol for the probe connection.
+	// Nil defaults to HTTP/1.1.
+	// +optional
+	Protocol *HTTPProtocol
 }
 
 // URIScheme identifies the scheme used for connection to a host for Get actions
@@ -4693,6 +4837,14 @@ type PodStatus struct {
 	// +optional
 	// +listType=atomic
 	NodeAllocatableResourceClaimStatuses []NodeAllocatableResourceClaimStatus
+
+	// volumeHealth contains node-reported health for each volume the pod is using.
+	// Populated by the kubelet on the pod's node.
+	// +featureGate=CSIVolumeHealth
+	// +optional
+	// +listType=map
+	// +listMapKey=name
+	VolumeHealth []PodVolumeHealth
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
@@ -5081,22 +5233,6 @@ const (
 
 // ServiceSpec describes the attributes that a user creates on a service
 type ServiceSpec struct {
-	// Type determines how the Service is exposed. Defaults to ClusterIP. Valid
-	// options are ExternalName, ClusterIP, NodePort, and LoadBalancer.
-	// "ExternalName" maps to the specified externalName.
-	// "ClusterIP" allocates a cluster-internal IP address for load-balancing to
-	// endpoints. Endpoints are determined by the selector or if that is not
-	// specified, by manual construction of an Endpoints object. If clusterIP is
-	// "None", no virtual IP is allocated and the endpoints are published as a
-	// set of endpoints rather than a stable IP.
-	// "NodePort" builds on ClusterIP and allocates a port on every node which
-	// routes to the clusterIP.
-	// "LoadBalancer" builds on NodePort and creates an
-	// external load-balancer (if supported in the current cloud) which routes
-	// to the clusterIP.
-	// More info: https://kubernetes.io/docs/concepts/services-networking/service/
-	// +optional
-	Type ServiceType
 
 	// Required: The list of ports that are exposed by this service.
 	Ports []ServicePort
@@ -5130,32 +5266,22 @@ type ServiceSpec struct {
 	// first element of ClusterIPs.
 	// +optional
 	ClusterIPs []string
-
-	// IPFamilies identifies all the IPFamilies assigned for this Service. If a value
-	// was not provided for IPFamilies it will be defaulted based on the cluster
-	// configuration and the value of service.spec.ipFamilyPolicy. A maximum of two
-	// values (dual-stack IPFamilies) are allowed in IPFamilies. IPFamilies field is
-	// conditionally mutable: it allows for adding or removing a secondary IPFamily,
-	// but it does not allow changing the primary IPFamily of the service.
+	// Type determines how the Service is exposed. Defaults to ClusterIP. Valid
+	// options are ExternalName, ClusterIP, NodePort, and LoadBalancer.
+	// "ExternalName" maps to the specified externalName.
+	// "ClusterIP" allocates a cluster-internal IP address for load-balancing to
+	// endpoints. Endpoints are determined by the selector or if that is not
+	// specified, by manual construction of an Endpoints object. If clusterIP is
+	// "None", no virtual IP is allocated and the endpoints are published as a
+	// set of endpoints rather than a stable IP.
+	// "NodePort" builds on ClusterIP and allocates a port on every node which
+	// routes to the clusterIP.
+	// "LoadBalancer" builds on NodePort and creates an
+	// external load-balancer (if supported in the current cloud) which routes
+	// to the clusterIP.
+	// More info: https://kubernetes.io/docs/concepts/services-networking/service/
 	// +optional
-	IPFamilies []IPFamily
-
-	// IPFamilyPolicy represents the dual-stack-ness requested or required by this
-	// Service. If there is no value provided, then this Service will be considered
-	// SingleStack (single IPFamily). Services can be SingleStack (single IPFamily),
-	// PreferDualStack (two dual-stack IPFamilies on dual-stack clusters or single
-	// IPFamily on single-stack clusters), or RequireDualStack (two dual-stack IPFamilies
-	// on dual-stack configured clusters, otherwise fail). The IPFamilies and ClusterIPs assigned
-	// to this service can be controlled by service.spec.ipFamilies and service.spec.clusterIPs
-	// respectively.
-	// +optional
-	IPFamilyPolicy *IPFamilyPolicy
-
-	// ExternalName is the external reference that kubedns or equivalent will
-	// return as a CNAME record for this service. No proxying will be involved.
-	// Must be a valid RFC-1123 hostname (https://tools.ietf.org/html/rfc1123)
-	// and requires Type to be ExternalName.
-	ExternalName string
+	Type ServiceType
 
 	// ExternalIPs are used by external load balancers, or can be set by
 	// users to handle external traffic that arrives at a node.
@@ -5163,6 +5289,10 @@ type ServiceSpec struct {
 	// Deprecated: ExternalIPs is deprecated and may be removed in a future version.
 	// +optional
 	ExternalIPs []string
+
+	// Optional: Supports "ClientIP" and "None".  Used to maintain session affinity.
+	// +optional
+	SessionAffinity ServiceAffinity
 
 	// Only applies to Service Type: LoadBalancer
 	// LoadBalancer will get created with the IP specified in this field.
@@ -5175,19 +5305,17 @@ type ServiceSpec struct {
 	// +optional
 	LoadBalancerIP string
 
-	// Optional: Supports "ClientIP" and "None".  Used to maintain session affinity.
-	// +optional
-	SessionAffinity ServiceAffinity
-
-	// sessionAffinityConfig contains the configurations of session affinity.
-	// +optional
-	SessionAffinityConfig *SessionAffinityConfig
-
 	// Optional: If specified and supported by the platform, this will restrict traffic through the cloud-provider
 	// load-balancer will be restricted to the specified client IPs. This field will be ignored if the
 	// cloud-provider does not support the feature."
 	// +optional
 	LoadBalancerSourceRanges []string
+
+	// ExternalName is the external reference that kubedns or equivalent will
+	// return as a CNAME record for this service. No proxying will be involved.
+	// Must be a valid RFC-1123 hostname (https://tools.ietf.org/html/rfc1123)
+	// and requires Type to be ExternalName.
+	ExternalName string
 
 	// externalTrafficPolicy describes how nodes distribute service traffic they
 	// receive on one of the Service's "externally-facing" addresses (NodePorts,
@@ -5223,6 +5351,30 @@ type ServiceSpec struct {
 	// through the Endpoints or EndpointSlice resources can safely assume this behavior.
 	// +optional
 	PublishNotReadyAddresses bool
+
+	// sessionAffinityConfig contains the configurations of session affinity.
+	// +optional
+	SessionAffinityConfig *SessionAffinityConfig
+
+	// IPFamilies identifies all the IPFamilies assigned for this Service. If a value
+	// was not provided for IPFamilies it will be defaulted based on the cluster
+	// configuration and the value of service.spec.ipFamilyPolicy. A maximum of two
+	// values (dual-stack IPFamilies) are allowed in IPFamilies. IPFamilies field is
+	// conditionally mutable: it allows for adding or removing a secondary IPFamily,
+	// but it does not allow changing the primary IPFamily of the service.
+	// +optional
+	IPFamilies []IPFamily
+
+	// IPFamilyPolicy represents the dual-stack-ness requested or required by this
+	// Service. If there is no value provided, then this Service will be considered
+	// SingleStack (single IPFamily). Services can be SingleStack (single IPFamily),
+	// PreferDualStack (two dual-stack IPFamilies on dual-stack clusters or single
+	// IPFamily on single-stack clusters), or RequireDualStack (two dual-stack IPFamilies
+	// on dual-stack configured clusters, otherwise fail). The IPFamilies and ClusterIPs assigned
+	// to this service can be controlled by service.spec.ipFamilies and service.spec.clusterIPs
+	// respectively.
+	// +optional
+	IPFamilyPolicy *IPFamilyPolicy
 
 	// allocateLoadBalancerNodePorts defines if NodePorts will be automatically
 	// allocated for services with type LoadBalancer.  Default is "true". It
@@ -5503,6 +5655,20 @@ type NodeSpec struct {
 	// see: https://issues.k8s.io/61966
 	// +optional
 	DoNotUseExternalID string
+
+	// PodPreemptionPolicy controls the node-level preemption behaviors for pods on this node.
+	// This is an alpha field and requires enabling the InPlacePodVerticalScalingSchedulerPreemption feature gate.
+	// +featureGate=InPlacePodVerticalScalingSchedulerPreemption
+	// +optional
+	PodPreemptionPolicy *NodePodPreemptionPolicy
+}
+
+// NodePodPreemptionPolicy defines the node-level policies governing preemption for pods on this node.
+type NodePodPreemptionPolicy struct {
+	// DisableResizePreemption lists the owners that have requested to disable scheduler and Kubelet preemption for in-place pod resize on this node.
+	// This is an alpha field and requires enabling the InPlacePodVerticalScalingSchedulerPreemption feature gate.
+	// +optional
+	DisableResizePreemption []string
 }
 
 // Deprecated: NodeConfigSource specifies a source of node configuration. Exactly one subfield must be non-nil.
@@ -5798,6 +5964,37 @@ const (
 	NodeDiskPressure NodeConditionType = "DiskPressure"
 	// NodeNetworkUnavailable means that network for the node is not correctly configured.
 	NodeNetworkUnavailable NodeConditionType = "NetworkUnavailable"
+	// NodeGracefulNodeShutdownInProgress reports whether Graceful Node Shutdown is determined to be in progress on this Node.
+	//
+	// The admin is responsible for setting and clearing this condition.
+	NodeGracefulNodeShutdownInProgress NodeConditionType = "GracefulNodeShutdownInProgress"
+	// NodeDrainInProgress reports that this Node is actively being drained,
+	// according to the admin's definition of drain.
+	// Commonly, this involves removing some amount of Pods, volumes, and networks.
+	//
+	// The admin is responsible for setting and clearing this condition.
+	NodeDrainInProgress NodeConditionType = "DrainInProgress"
+	// NodeDrained reports that this Node has reached the drain criteria selected by the admin.
+	//
+	// The admin is responsible for setting and clearing this condition.
+	NodeDrained NodeConditionType = "Drained"
+	// NodeMaintenancePlanned reports that this Node is expected to undergo a change in the future.
+	// If this change impacts Node users, the admin should drain the Node first.
+	//
+	// Admins can use the Node maintenance condition for cases like hardware or software rollout,
+	// remediation, decommissioning, or debugging.
+	//
+	// The admin is responsible for setting and clearing this condition.
+	NodeMaintenancePlanned NodeConditionType = "MaintenancePlanned"
+	// NodeMaintenanceInProgress reports that this Node is actively undergoing maintenance.
+	//
+	// The admin decides whether the change will impact Node users and require a Node drain.
+	// For example, it is recommended to drain a Node before a Kubernetes upgrade.
+	// In contrast, a kernel live patch may not require a Node drain, but it can still be useful
+	// to communicate that maintenance is in progress.
+	//
+	// The admin is responsible for setting and clearing this condition.
+	NodeMaintenanceInProgress NodeConditionType = "MaintenanceInProgress"
 )
 
 // NodeCondition represents the node's condition

@@ -35,7 +35,6 @@ import (
 	"time"
 
 	"github.com/coreos/go-systemd/v22/daemon"
-	"github.com/go-logr/logr"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"go.opentelemetry.io/otel"
@@ -632,7 +631,7 @@ func makeEventRecorder(ctx context.Context, kubeDeps *kubelet.Dependencies, node
 	}
 }
 
-func getReservedCPUs(logger logr.Logger, machineInfo *cadvisorapi.MachineInfo, cpus string) (cpuset.CPUSet, error) {
+func getReservedCPUs(logger klog.Logger, machineInfo *cadvisorapi.MachineInfo, cpus string) (cpuset.CPUSet, error) {
 	emptyCPUSet := cpuset.New()
 
 	if cpus == "" {
@@ -800,6 +799,17 @@ func run(ctx context.Context, s *options.KubeletServer, kubeDeps *kubelet.Depend
 		return err
 	}
 
+	if utilfeature.DefaultFeatureGate.Enabled(features.PodAndContainerStatsFromCRI) && !cadvisor.UsingLegacyCadvisorStats(s.ContainerRuntimeEndpoint) {
+		_, err := kubeDeps.RemoteRuntimeService.PodSandboxStats(ctx, "")
+		if err != nil {
+			s, ok := status.FromError(err)
+			if ok && s.Code() == codes.Unimplemented {
+				logger.Info("CRI implementation does not support PodSandboxStats, falling back to cadvisor stats")
+				kubeDeps.PodSandboxStatsUnimplemented = true
+			}
+		}
+	}
+
 	// Get cgroup driver setting from CRI
 	if err := getCgroupDriverFromCRI(ctx, s, kubeDeps); err != nil {
 		return err
@@ -833,7 +843,8 @@ func run(ctx context.Context, s *options.KubeletServer, kubeDeps *kubelet.Depend
 
 	if kubeDeps.CAdvisorInterface == nil {
 		imageFsInfoProvider := cadvisor.NewImageFsInfoProvider(s.ContainerRuntimeEndpoint)
-		kubeDeps.CAdvisorInterface, err = cadvisor.New(klog.FromContext(ctx), imageFsInfoProvider, s.RootDirectory, cgroupRoots, cadvisor.UsingLegacyCadvisorStats(s.ContainerRuntimeEndpoint), s.LocalStorageCapacityIsolation)
+		disableContainerDiscovery := utilfeature.DefaultFeatureGate.Enabled(features.PodAndContainerStatsFromCRI) && !kubeDeps.PodSandboxStatsUnimplemented
+		kubeDeps.CAdvisorInterface, err = cadvisor.New(klog.FromContext(ctx), imageFsInfoProvider, s.RootDirectory, cgroupRoots, cadvisor.UsingLegacyCadvisorStats(s.ContainerRuntimeEndpoint), s.LocalStorageCapacityIsolation, disableContainerDiscovery)
 		if err != nil {
 			return err
 		}
@@ -940,6 +951,7 @@ func run(ctx context.Context, s *options.KubeletServer, kubeDeps *kubelet.Depend
 				MemoryManagerPolicy:          s.MemoryManagerPolicy,
 				MemoryManagerReservedMemory:  s.ReservedMemory,
 				MemoryReservationPolicy:      s.MemoryReservationPolicy,
+				MemoryThrottlingFactor:       s.MemoryThrottlingFactor,
 				PodPidsLimit:                 s.PodPidsLimit,
 				EnforceCPULimits:             s.CPUCFSQuota,
 				CPUCFSQuotaPeriod:            s.CPUCFSQuotaPeriod.Duration,

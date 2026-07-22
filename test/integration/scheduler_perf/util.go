@@ -36,7 +36,7 @@ import (
 	resourcealpha "k8s.io/api/resource/v1alpha3"
 	resourcev1beta1 "k8s.io/api/resource/v1beta1"
 	resourcev1beta2 "k8s.io/api/resource/v1beta2"
-	schedulingapi "k8s.io/api/scheduling/v1alpha3"
+	schedulingapi "k8s.io/api/scheduling/v1beta1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -51,11 +51,11 @@ import (
 	"k8s.io/klog/v2"
 	kubeschedulerconfigv1 "k8s.io/kube-scheduler/config/v1"
 	apiservertesting "k8s.io/kubernetes/cmd/kube-apiserver/app/testing"
-	"k8s.io/kubernetes/pkg/controller/resourceclaim"
 	"k8s.io/kubernetes/pkg/features"
 	"k8s.io/kubernetes/pkg/scheduler"
 	"k8s.io/kubernetes/pkg/scheduler/apis/config"
 	kubeschedulerscheme "k8s.io/kubernetes/pkg/scheduler/apis/config/scheme"
+	schedulermetrics "k8s.io/kubernetes/pkg/scheduler/metrics"
 	schedutil "k8s.io/kubernetes/pkg/scheduler/util"
 	"k8s.io/kubernetes/test/integration/framework"
 	"k8s.io/kubernetes/test/integration/util"
@@ -69,7 +69,7 @@ const (
 	throughputSampleInterval = time.Second
 )
 
-var dataItemsDir = flag.String("data-items-dir", "", "destination directory for storing generated data items for perf dashboard")
+var dataItemsDir = flag.String("data-items-dir", "", "destination directory for storing generated data items for perf dashboard or performance profiles")
 
 var runID = time.Now().Format(dateFormat)
 
@@ -150,12 +150,7 @@ func mustSetupCluster(tCtx ktesting.TContext, config *config.KubeSchedulerConfig
 	if enabledFeatures[features.DynamicResourceAllocation] {
 		// Testing of DRA with inline resource claims depends on this
 		// controller for creating and removing ResourceClaims.
-		features := resourceclaim.Features{
-			AdminAccess:            true,
-			PrioritizedList:        true,
-			WorkloadResourceClaims: enabledFeatures[features.DRAWorkloadResourceClaims],
-		}
-		runResourceClaimController = util.CreateResourceClaimController(tCtx, tCtx, tCtx.Client(), informerFactory, features)
+		runResourceClaimController = util.CreateResourceClaimController(tCtx, tCtx, tCtx.Client(), informerFactory)
 	}
 
 	informerFactory.Start(tCtx.Done())
@@ -233,6 +228,10 @@ type podScheduling struct {
 	completed     int
 	observedTotal int
 	observedRate  float64
+	activePods    int
+	backoffPods   int
+	unschedulable int
+	gatedPods     int
 }
 
 // makeBasePod creates a Pod object to be used as a template.
@@ -314,15 +313,20 @@ func dataItems2JSONFile(dataItems DataItems, namePrefix string) error {
 	return os.WriteFile(destFile, formatted.Bytes(), 0644)
 }
 
-func dataFilename(destFile string) (string, error) {
+func createOutputFile(suffix string) (*os.File, error) {
+	destFile := perTestFilePrefix + suffix
 	if *dataItemsDir != "" {
 		// Ensure the "dataItemsDir" path is valid.
 		if err := os.MkdirAll(*dataItemsDir, 0750); err != nil {
-			return "", fmt.Errorf("dataItemsDir path %v does not exist and cannot be created: %w", *dataItemsDir, err)
+			return nil, fmt.Errorf("dataItemsDir path %v does not exist and cannot be created: %w", *dataItemsDir, err)
 		}
 		destFile = path.Join(*dataItemsDir, destFile)
 	}
-	return destFile, nil
+	f, err := os.Create(destFile)
+	if err != nil {
+		return nil, fmt.Errorf("create output file: %w", err)
+	}
+	return f, nil
 }
 
 type labelValues struct {
@@ -370,17 +374,23 @@ func (*metricsCollector) run(tCtx ktesting.TContext) {
 }
 
 func (mc *metricsCollector) collect() []DataItem {
+	gm, err := testutil.GatherMetrics(legacyregistry.DefaultGatherer)
+	if err != nil {
+		klog.ErrorS(err, "failed to gather metrics for collection")
+		return nil
+	}
+
 	var dataItems []DataItem
 	for metric, labelValsSlice := range mc.Metrics {
 		// no filter is specified, aggregate all the metrics within the same metricFamily.
 		if labelValsSlice == nil {
-			dataItem := collectHistogramVec(metric, mc.labels, nil)
+			dataItem := collectHistogramVec(gm, metric, mc.labels, nil)
 			if dataItem != nil {
 				dataItems = append(dataItems, *dataItem)
 			}
 		} else {
 			for _, lvMap := range uniqueLVCombos(labelValsSlice) {
-				dataItem := collectHistogramVec(metric, mc.labels, lvMap)
+				dataItem := collectHistogramVec(gm, metric, mc.labels, lvMap)
 				if dataItem != nil {
 					dataItems = append(dataItems, *dataItem)
 				}
@@ -416,8 +426,8 @@ func uniqueLVCombos(lvs []*labelValues) []map[string]string {
 	return results
 }
 
-func collectHistogramVec(metric string, labels map[string]string, lvMap map[string]string) *DataItem {
-	vec, err := testutil.GetHistogramVecFromGatherer(legacyregistry.DefaultGatherer, metric, lvMap)
+func collectHistogramVec(gm *testutil.GatheredMetrics, metric string, labels map[string]string, lvMap map[string]string) *DataItem {
+	vec, err := gm.GetHistogramVec(metric, lvMap)
 	if err != nil {
 		// "metric ... not found" is pretty normal. Don't spam the output with it!
 		if !strings.HasSuffix(err.Error(), "not found") {
@@ -566,6 +576,11 @@ func (tc *throughputCollector) run(tCtx ktesting.TContext) {
 	started := false
 	skipped := 0
 
+	activePods := schedulermetrics.ActivePods()
+	backoffPods := schedulermetrics.BackoffPods()
+	unschedulablePods := schedulermetrics.UnschedulablePods()
+	gatedPods := schedulermetrics.GatedPods()
+
 	for {
 		select {
 		case <-tCtx.Done():
@@ -623,12 +638,20 @@ func (tc *throughputCollector) run(tCtx ktesting.TContext) {
 			if err != nil {
 				klog.Error(err)
 			}
+			activePods, _ := testutil.GetGaugeMetricValue(activePods)
+			backoffPods, _ := testutil.GetGaugeMetricValue(backoffPods)
+			unschedulable, _ := testutil.GetGaugeMetricValue(unschedulablePods)
+			gatedPods, _ := testutil.GetGaugeMetricValue(gatedPods)
 			tc.progress = append(tc.progress, podScheduling{
 				ts:            now,
 				attempts:      int(counters["unschedulable"] + counters["error"] + counters["scheduled"]),
 				completed:     int(counters["scheduled"]),
 				observedTotal: scheduled,
 				observedRate:  throughput,
+				activePods:    int(activePods),
+				backoffPods:   int(backoffPods),
+				unschedulable: int(unschedulable),
+				gatedPods:     int(gatedPods),
 			})
 
 			lastScheduledCount = scheduled

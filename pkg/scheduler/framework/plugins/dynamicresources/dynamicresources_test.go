@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"math"
 	"reflect"
+	goruntime "runtime"
 	"slices"
 	"sort"
 	"strings"
@@ -29,15 +30,14 @@ import (
 	"testing"
 	"time"
 
-	goruntime "runtime"
-
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	v1 "k8s.io/api/core/v1"
 	resourceapi "k8s.io/api/resource/v1"
-	schedulingapi "k8s.io/api/scheduling/v1alpha3"
+	schedulingapi "k8s.io/api/scheduling/v1beta1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apiresource "k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -78,6 +78,27 @@ import (
 
 func init() {
 	metrics.InitMetrics()
+}
+
+func TestPostFilterNoOpStatusHasNoUserVisibleReason(t *testing.T) {
+	pod := st.MakePod().Name("pod").Namespace("default").Obj()
+
+	t.Run("plugin disabled", func(t *testing.T) {
+		_, status := (&DynamicResources{}).PostFilter(context.Background(), framework.NewCycleState(), pod, nil)
+
+		require.Equal(t, fwk.Unschedulable, status.Code())
+		assert.Empty(t, status.Reasons())
+	})
+
+	t.Run("no claims", func(t *testing.T) {
+		state := framework.NewCycleState()
+		state.Write(stateKey, &stateData{})
+
+		_, status := (&DynamicResources{enabled: true}).PostFilter(context.Background(), state, pod, nil)
+
+		require.Equal(t, fwk.Unschedulable, status.Code())
+		assert.Empty(t, status.Reasons())
+	})
 }
 
 var (
@@ -206,6 +227,16 @@ var (
 				PodResourceClaims(v1.PodResourceClaim{Name: resourceName, ResourceClaimName: &claimName}).
 				PodGroupName(podGroupName).
 				Obj()
+	groupedPodWithClaimName2 = st.MakePod().Name(podName + "-2").Namespace(namespace).
+					UID(podUID + "-2").
+					PodResourceClaims(v1.PodResourceClaim{Name: resourceName, ResourceClaimName: &claimName}).
+					PodGroupName(podGroupName).
+					Obj()
+	groupedPodWithPodLevelClaim = st.MakePod().Name(podName + "-podlevel").Namespace(namespace).
+					UID(podUID + "-podlevel").
+					PodResourceClaims(v1.PodResourceClaim{Name: resourceName2, ResourceClaimName: &claimName2}).
+					PodGroupName(podGroupName).
+					Obj()
 	groupedPodWithTwoClaimNames = st.MakePod().Name(podName).Namespace(namespace).
 					UID(podUID).
 					PodResourceClaims(v1.PodResourceClaim{Name: resourceName, ResourceClaimName: &claimName}).
@@ -230,6 +261,11 @@ var (
 				UID(types.UID(podGroupUID)).
 				ResourceClaims(schedulingapi.PodGroupResourceClaim{Name: resourceName, ResourceClaimName: &claimName}).
 				Obj()
+	podGroupWithClaimNameAndConstraints = st.MakePodGroup().Name(podGroupName).Namespace(namespace).
+						UID(types.UID(podGroupUID)).
+						ResourceClaims(schedulingapi.PodGroupResourceClaim{Name: resourceName, ResourceClaimName: &claimName}).
+						TopologyKey("kubernetes.io/hostname").
+						Obj()
 	podGroupWithClaimTemplate = st.MakePodGroup().Name(podGroupName).Namespace(namespace).
 					UID(types.UID(podGroupUID)).
 					ResourceClaims(schedulingapi.PodGroupResourceClaim{Name: resourceName, ResourceClaimTemplateName: &claimName}).
@@ -623,6 +659,11 @@ var (
 			Allocation(allocationResult).
 			ReservedForPod(podName, types.UID(podUID)).
 			Obj()
+	inUseClaimForPodLevel = st.FromResourceClaim(claim2).
+				OwnerReference(podName+"-podlevel", podUID+"-podlevel", podKind).
+				Allocation(allocationResult).
+				ReservedForPod(podName+"-podlevel", types.UID(podUID+"-podlevel")).
+				Obj()
 	inUseClaimByPodGroup = st.FromResourceClaim(pendingPodGroupClaim).
 				Allocation(allocationResult).
 				ReservedForPodGroup(podGroupName, types.UID(podGroupUID)).
@@ -1129,22 +1170,23 @@ func (p perNodeScoreResult) forNode(nodeName string) int64 {
 }
 
 type want struct {
-	preenqueue             result
-	preFilterResult        *fwk.PreFilterResult
-	prefilter              result
-	filter                 perNodeResult
-	prescore               result
-	scoreResult            perNodeScoreResult
-	score                  perNodeResult
-	normalizeScoreResult   fwk.NodeScoreList
-	normalizeScore         result
-	reserve                result
-	unreserve              result
-	preBindPreFlightStatus *fwk.Status
-	prebind                result
-	postbind               result
-	postFilterResult       *fwk.PostFilterResult
-	postfilter             result
+	preenqueue               result
+	preFilterResult          *fwk.PreFilterResult
+	prefilter                result
+	filter                   perNodeResult
+	prescore                 result
+	scoreResult              perNodeScoreResult
+	score                    perNodeResult
+	normalizeScoreResult     fwk.NodeScoreList
+	normalizeScore           result
+	reserve                  result
+	unreserve                result
+	preBindPreFlightStatus   *fwk.Status
+	prebind                  result
+	postbind                 result
+	postFilterResult         *fwk.PostFilterResult
+	podGroupPostFilterResult *fwk.PodGroupPostFilterResult
+	postfilter               result
 
 	// unreserveAfterBindFailure, if set, triggers a call to Unreserve
 	// after PreBind, as if the actual Bind had failed.
@@ -1222,6 +1264,69 @@ type testPluginCase struct {
 func TestPlugin(t *testing.T) {
 	testPlugin(ktesting.Init(t))
 }
+
+func TestPreFilterReusesPendingAllocationWithNilNodeSelector(t *testing.T) {
+	tCtx := ktesting.Init(t)
+	featuregatetesting.SetFeatureGatesDuringTest(tCtx, utilfeature.DefaultFeatureGate, featuregatetesting.FeatureOverrides{
+		features.DRAWorkloadResourceClaims: true,
+		features.GenericWorkload:           true,
+	})
+
+	feats := feature.Features{
+		EnableDRAAdminAccess:               true,
+		EnableDRADeviceBindingConditions:   true,
+		EnableDRAResourceClaimDeviceStatus: true,
+		EnableDRASchedulerFilterTimeout:    true,
+		EnableDynamicResourceAllocation:    true,
+		EnableDRAWorkloadResourceClaims:    true,
+	}
+	testCtx := setup(tCtx, nil, []*v1.Node{workerNode}, []*resourceapi.ResourceClaim{pendingPodGroupClaim}, []*resourceapi.DeviceClass{deviceClass}, []*schedulingapi.PodGroup{podGroupWithClaimName}, []apiruntime.Object{workerNodeSlice}, feats, false, nil)
+
+	pendingClaim, err := testCtx.draManager.ResourceClaims().Get(namespace, claimName)
+	if err != nil {
+		t.Fatalf("Get claim: %v", err)
+	}
+	allocatedClaim := pendingClaim.DeepCopy()
+	allocatedClaim.Status.Allocation = allocationResult.DeepCopy()
+	allocatedClaim.Status.Allocation.NodeSelector = nil
+	tCtx.ExpectNoError(testCtx.draManager.ResourceClaims().SignalClaimPendingAllocation(allocatedClaim.UID, allocatedClaim))
+
+	podGroupCycleState := framework.NewCycleState()
+	podGroupCycleState.Write(stateKey, &podGroupStateData{
+		pendingAllocations: sets.New(allocatedClaim.UID),
+	})
+	cycleState := framework.NewCycleState()
+	cycleState.SetPodGroupSchedulingCycle(podGroupCycleState)
+	testCtx.state = cycleState
+
+	nodeInfo := framework.NewNodeInfo()
+	nodeInfo.SetNode(workerNode)
+
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				t.Errorf("PreFilter panicked: %v", r)
+			}
+		}()
+		_, status := testCtx.p.PreFilter(tCtx, testCtx.state, groupedPodWithClaimName, []fwk.NodeInfo{nodeInfo})
+		if !status.IsSuccess() {
+			t.Errorf("PreFilter status: %v", status)
+		}
+	}()
+
+	pluginState, err := getStateData(testCtx.state)
+	if err != nil {
+		t.Fatalf("getStateData: %v", err)
+	}
+	if pluginState.informationsForClaim[0].allocation != allocatedClaim.Status.Allocation {
+		t.Errorf("allocation pointer mismatch: got %p, want %p",
+			pluginState.informationsForClaim[0].allocation, allocatedClaim.Status.Allocation)
+	}
+	if pluginState.informationsForClaim[0].availableOnNodes != nil {
+		t.Errorf("availableOnNodes should be nil, got %v", pluginState.informationsForClaim[0].availableOnNodes)
+	}
+}
+
 func testPlugin(tCtx ktesting.TContext) {
 	testcases := map[string]testPluginCase{
 		"empty": {
@@ -1396,7 +1501,7 @@ func testPlugin(tCtx ktesting.TContext) {
 					},
 				},
 				postfilter: result{
-					status: fwk.NewStatus(fwk.Unschedulable, `still not schedulable`),
+					status: fwk.NewStatus(fwk.Unschedulable),
 				},
 			},
 		},
@@ -1618,7 +1723,7 @@ func testPlugin(tCtx ktesting.TContext) {
 					},
 				},
 				postfilter: result{
-					status: fwk.NewStatus(fwk.Unschedulable, `still not schedulable`),
+					status: fwk.NewStatus(fwk.Unschedulable),
 				},
 			},
 		},
@@ -1643,7 +1748,7 @@ func testPlugin(tCtx ktesting.TContext) {
 				},
 				postfilter: result{
 					inFlightClaims: []metav1.Object{otherAllocatedClaim},
-					status:         fwk.NewStatus(fwk.Unschedulable, `still not schedulable`),
+					status:         fwk.NewStatus(fwk.Unschedulable),
 				},
 			},
 		},
@@ -1735,7 +1840,7 @@ func testPlugin(tCtx ktesting.TContext) {
 					},
 				},
 				postfilter: result{
-					status: fwk.NewStatus(fwk.Unschedulable, `still not schedulable`),
+					status: fwk.NewStatus(fwk.Unschedulable),
 				},
 			},
 		},
@@ -1896,7 +2001,7 @@ func testPlugin(tCtx ktesting.TContext) {
 					status: fwk.NewStatus(fwk.UnschedulableAndUnresolvable, fmt.Sprintf("request req-1: device class %s does not exist", className)),
 				},
 				postfilter: result{
-					status: fwk.NewStatus(fwk.Unschedulable, `no new claims to deallocate`),
+					status: fwk.NewStatus(fwk.Unschedulable),
 				},
 			},
 		},
@@ -2060,7 +2165,7 @@ func testPlugin(tCtx ktesting.TContext) {
 					},
 				},
 				postfilter: result{
-					status: fwk.NewStatus(fwk.Unschedulable, `still not schedulable`),
+					status: fwk.NewStatus(fwk.Unschedulable),
 				},
 			},
 		},
@@ -2095,7 +2200,7 @@ func testPlugin(tCtx ktesting.TContext) {
 							return claim
 						},
 					},
-					status: fwk.NewStatus(fwk.Unschedulable, `deallocation of ResourceClaim completed`),
+					status: fwk.NewStatus(fwk.Unschedulable, `deallocation and deletion of ResourceClaims completed`),
 				},
 			},
 		},
@@ -2120,7 +2225,7 @@ func testPlugin(tCtx ktesting.TContext) {
 					},
 				},
 				postfilter: result{
-					status: fwk.NewStatus(fwk.Unschedulable, `still not schedulable`),
+					status: fwk.NewStatus(fwk.Unschedulable),
 				},
 			},
 		},
@@ -2158,7 +2263,7 @@ func testPlugin(tCtx ktesting.TContext) {
 							return claim
 						},
 					},
-					status: fwk.NewStatus(fwk.Unschedulable, `deallocation of ResourceClaim completed`),
+					status: fwk.NewStatus(fwk.Unschedulable, `deallocation and deletion of ResourceClaims completed`),
 				},
 			},
 		},
@@ -2180,7 +2285,7 @@ func testPlugin(tCtx ktesting.TContext) {
 					status: fwk.NewStatus(fwk.Skip),
 				},
 				postfilter: result{
-					status: fwk.NewStatus(fwk.Unschedulable, `plugin disabled`),
+					status: fwk.NewStatus(fwk.Unschedulable),
 				},
 				preBindPreFlightStatus: fwk.NewStatus(fwk.Skip),
 			},
@@ -2194,7 +2299,7 @@ func testPlugin(tCtx ktesting.TContext) {
 					status: fwk.NewStatus(fwk.Unschedulable, `request req-1: device class does-not-exist does not exist`),
 				},
 				postfilter: result{
-					status: fwk.NewStatus(fwk.Unschedulable, `no new claims to deallocate`),
+					status: fwk.NewStatus(fwk.Unschedulable),
 				},
 			},
 		},
@@ -2208,7 +2313,7 @@ func testPlugin(tCtx ktesting.TContext) {
 					status: fwk.NewStatus(fwk.UnschedulableAndUnresolvable, `claim default/my-pod-my-resource, request req-1: has subrequests, but the DRAPrioritizedList feature is disabled`),
 				},
 				postfilter: result{
-					status: fwk.NewStatus(fwk.Unschedulable, `no new claims to deallocate`),
+					status: fwk.NewStatus(fwk.Unschedulable),
 				},
 			},
 		},
@@ -2221,7 +2326,7 @@ func testPlugin(tCtx ktesting.TContext) {
 					status: fwk.NewStatus(fwk.Unschedulable, `request req-1/subreq-1: device class does-not-exist does not exist`),
 				},
 				postfilter: result{
-					status: fwk.NewStatus(fwk.Unschedulable, `no new claims to deallocate`),
+					status: fwk.NewStatus(fwk.Unschedulable),
 				},
 			},
 		},
@@ -2324,7 +2429,7 @@ func testPlugin(tCtx ktesting.TContext) {
 					},
 				},
 				postfilter: result{
-					status: fwk.NewStatus(fwk.Unschedulable, `still not schedulable`),
+					status: fwk.NewStatus(fwk.Unschedulable),
 				},
 			},
 			metrics: func(tCtx ktesting.TContext, g compbasemetrics.Gatherer) {
@@ -2559,7 +2664,7 @@ func testPlugin(tCtx ktesting.TContext) {
 					},
 				},
 				postfilter: result{
-					status: fwk.NewStatus(fwk.Unschedulable, `still not schedulable`),
+					status: fwk.NewStatus(fwk.Unschedulable),
 				},
 			},
 		},
@@ -3478,7 +3583,7 @@ func testPlugin(tCtx ktesting.TContext) {
 					workerNodeWithCapacity.Name: {status: fwk.NewStatus(fwk.Unschedulable, `Insufficient cpu`)},
 				},
 				postfilter: result{
-					status: fwk.NewStatus(fwk.Unschedulable, "still not schedulable"),
+					status: fwk.NewStatus(fwk.Unschedulable),
 				},
 			},
 		},
@@ -3499,7 +3604,7 @@ func testPlugin(tCtx ktesting.TContext) {
 					workerNodeWithCapacity.Name: {status: fwk.NewStatus(fwk.Unschedulable, `cannot allocate all claims`)},
 				},
 				postfilter: result{
-					status: fwk.NewStatus(fwk.Unschedulable, "still not schedulable"),
+					status: fwk.NewStatus(fwk.Unschedulable),
 				},
 			},
 		},
@@ -3703,11 +3808,29 @@ func testPlugin(tCtx ktesting.TContext) {
 			} else if len(potentialNodes) == 0 {
 				initialObjects = testCtx.listAll(tCtx)
 				initialObjects = testCtx.updateAPIServer(tCtx, initialObjects, tc.prepare.postfilter)
-				result, status := testCtx.p.PostFilter(tCtx, testCtx.state, tc.pod, nil /* filteredNodeStatusMap not used by plugin */)
-				tCtx.Run("postfilter", func(tCtx ktesting.TContext) {
-					assert.Equal(tCtx, tc.want.postFilterResult, result)
-					testCtx.verify(tCtx, tc.want.postfilter, initialObjects, tc.pod, nil, status)
-				})
+				if len(tc.podGroups) > 0 {
+					pgInfo := &framework.PodGroupInfo{
+						Name:            tc.podGroups[0].Name,
+						Namespace:       tc.podGroups[0].Namespace,
+						UnscheduledPods: []*v1.Pod{tc.pod},
+						PodGroup:        tc.podGroups[0],
+					}
+					mockSchedulingFunc := func(ctx context.Context) (*fwk.PodGroupAssignments, *fwk.Status) {
+						return nil, fwk.NewStatus(fwk.Unschedulable)
+					}
+					podGroupCycleState := testCtx.state.GetPodGroupSchedulingCycle()
+					result, status := testCtx.p.PodGroupPostFilter(tCtx, podGroupCycleState, pgInfo, mockSchedulingFunc)
+					tCtx.Run("postfilter", func(tCtx ktesting.TContext) {
+						assert.Equal(tCtx, tc.want.podGroupPostFilterResult, result)
+						testCtx.verify(tCtx, tc.want.postfilter, initialObjects, tc.pod, nil, status)
+					})
+				} else {
+					result, status := testCtx.p.PostFilter(tCtx, testCtx.state, tc.pod, nil /* filteredNodeStatusMap not used by plugin */)
+					tCtx.Run("postfilter", func(tCtx ktesting.TContext) {
+						assert.Equal(tCtx, tc.want.postFilterResult, result)
+						testCtx.verify(tCtx, tc.want.postfilter, initialObjects, tc.pod, nil, status)
+					})
+				}
 			}
 			if tc.metrics != nil {
 				tc.metrics(tCtx, registry)
@@ -3748,7 +3871,7 @@ type testContext struct {
 func (tc *testContext) verify(tCtx ktesting.TContext, expected result, initialObjects []metav1.Object, testPod *v1.Pod, result interface{}, status *fwk.Status) {
 	tCtx.Helper()
 	if expected.status == nil {
-		assert.Nil(tCtx, status)
+		assert.Nil(tCtx, status, status.AsError())
 	} else if actualErr := status.AsError(); actualErr != nil {
 		// Compare only the error strings.
 		assert.ErrorContains(tCtx, actualErr, expected.status.AsError().Error())
@@ -3994,8 +4117,7 @@ func setup(tCtx ktesting.TContext, args *config.DynamicResourcesArgs, nodes []*v
 	resourceSliceTrackerOpts := resourceslicetracker.Options{
 		EnableDeviceTaintRules: true,
 		SliceInformer:          tc.informerFactory.Resource().V1().ResourceSlices(),
-		TaintInformer:          tc.informerFactory.Resource().V1beta2().DeviceTaintRules(),
-		ClassInformer:          tc.informerFactory.Resource().V1().DeviceClasses(),
+		TaintInformer:          tc.informerFactory.Resource().V1().DeviceTaintRules(),
 		KubeClient:             tc.client,
 	}
 	resourceSliceTracker, err := resourceslicetracker.StartTracker(tCtx, resourceSliceTrackerOpts)
@@ -4023,7 +4145,7 @@ func setup(tCtx ktesting.TContext, args *config.DynamicResourcesArgs, nodes []*v
 		doneCheckers = append(doneCheckers, deviceClassHandlerRegistration.HasSyncedChecker())
 	}
 
-	tc.podGroupManager = internalcache.New(tCtx, nil, true)
+	tc.podGroupManager = internalcache.New(tCtx, nil, true, false)
 	for _, obj := range objs {
 		if pod, ok := obj.(*v1.Pod); ok {
 			tc.podGroupManager.AddPodGroupMember(pod)
@@ -4067,7 +4189,7 @@ func setup(tCtx ktesting.TContext, args *config.DynamicResourcesArgs, nodes []*v
 		tCtx.ExpectNoError(err, "create resource class")
 	}
 	for _, podGroup := range podGroups {
-		_, err := tc.client.SchedulingV1alpha3().PodGroups(podGroup.Namespace).Create(tCtx, podGroup, metav1.CreateOptions{})
+		_, err := tc.client.SchedulingV1beta1().PodGroups(podGroup.Namespace).Create(tCtx, podGroup, metav1.CreateOptions{})
 		tCtx.ExpectNoError(err, "create pod group")
 	}
 
@@ -4091,7 +4213,12 @@ func setup(tCtx ktesting.TContext, args *config.DynamicResourcesArgs, nodes []*v
 		nodeInfo.SetNode(node)
 		tc.nodeInfos = append(tc.nodeInfos, nodeInfo)
 	}
-	tc.state = framework.NewCycleState()
+	state := framework.NewCycleState()
+	if len(podGroups) > 0 {
+		pgCycleState := framework.NewCycleState()
+		state.SetPodGroupSchedulingCycle(pgCycleState)
+	}
+	tc.state = state
 
 	return tc
 }
@@ -4143,7 +4270,7 @@ func createReactor(tracker cgotesting.ObjectTracker, failPatch bool) func(action
 				uidCounter++
 			}
 			if inUseUIDs.Has(obj.GetUID()) {
-				return true, nil, errors.New("UID %s already in use")
+				return true, nil, fmt.Errorf("UID %s already in use", obj.GetUID())
 			}
 			inUseUIDs.Insert(obj.GetUID())
 			obj.SetResourceVersion(fmt.Sprintf("%d", resourceVersionCounter))
@@ -4194,9 +4321,42 @@ func testIsSchedulableAfterClaimChange(tCtx ktesting.TContext) {
 	}{
 		"skip-deletes": {
 			pod:      podWithClaimTemplate,
-			oldObj:   allocatedClaim,
+			oldObj:   pendingClaim,
 			newObj:   nil,
 			wantHint: fwk.QueueSkip,
+		},
+		"queue-on-delete-with-allocation": {
+			pod:      podWithClaimTemplate,
+			oldObj:   allocatedClaim,
+			newObj:   nil,
+			wantHint: fwk.Queue,
+		},
+		"queue-on-delete-final-state-unknown": {
+			pod: podWithClaimTemplate,
+			oldObj: cache.DeletedFinalStateUnknown{
+				Key: allocatedClaim.Namespace + "/" + allocatedClaim.Name,
+				Obj: allocatedClaim,
+			},
+			newObj:   nil,
+			wantHint: fwk.Queue,
+		},
+		"queue-on-delete-final-state-unknown-with-object": {
+			pod: podWithClaimTemplate,
+			oldObj: cache.DeletedFinalStateUnknown{
+				Key: allocatedClaim.Namespace + "/" + allocatedClaim.Name,
+				Obj: allocatedClaim,
+			},
+			newObj:   nil,
+			wantHint: fwk.Queue,
+		},
+		"queue-on-delete-final-state-unknown-without-object": {
+			pod: podWithClaimTemplate,
+			oldObj: cache.DeletedFinalStateUnknown{
+				Key: allocatedClaim.Namespace + "/" + allocatedClaim.Name,
+				Obj: nil,
+			},
+			newObj:   nil,
+			wantHint: fwk.Queue,
 		},
 		"backoff-wrong-new-object": {
 			pod:     podWithClaimTemplate,
@@ -4490,6 +4650,10 @@ func TestAllocatorSelection(t *testing.T) {
 		"PartitionableDevices": {
 			features:             "AllAlpha=false,AllBeta=false,DRAPartitionableDevices=true",
 			expectImplementation: "stable",
+		},
+		"FractionalCapacityRange": {
+			features:             "AllAlpha=false,AllBeta=false,DRAConsumableCapacity=true,DRAFractionalCapacityRange=true",
+			expectImplementation: "incubating",
 		},
 		"PrioritizedList": {
 			features:             "AllAlpha=false,AllBeta=false,DRAPrioritizedList=true",
@@ -5062,8 +5226,11 @@ func testGatherAllocatedState(tCtx ktesting.TContext) {
 
 			tCtx.Helper()
 			logger := klog.FromContext(tCtx)
+			assumeCacheInformer := &testInformer{}
+			assumeCache := assumecache.NewAssumeCache(tCtx.Logger(), assumeCacheInformer, "", "", nil)
 			draManager := &DefaultDRAManager{
 				resourceClaimTracker: &claimTracker{
+					cache:               assumeCache,
 					inFlightAllocations: make(map[types.UID]inFlightAllocation),
 					allocatedDevices:    newAllocatedDevices(logger),
 				},
@@ -5073,6 +5240,7 @@ func testGatherAllocatedState(tCtx ktesting.TContext) {
 			}
 			if tc.inflightResourceClaims != nil {
 				for claimUID, obj := range tc.inflightResourceClaims {
+					assumeCacheInformer.add(obj)
 					err := draManager.resourceClaimTracker.SignalClaimPendingAllocation(claimUID, obj)
 					if err != nil {
 						if !tc.expectErr {
@@ -5137,4 +5305,274 @@ func testGatherAllocatedState(tCtx ktesting.TContext) {
 		})
 	}
 
+}
+
+func TestDynamicResources_DeferredResizeSkipped(t *testing.T) {
+	featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.InPlacePodVerticalScalingSchedulerPreemption, true)
+	ctx := context.Background()
+	pod := st.MakePod().Name("p").UID("p").Condition(v1.PodResizePending, v1.ConditionTrue, v1.PodReasonDeferred).Obj()
+	nodeInfo := framework.NewNodeInfo()
+	nodeInfo.SetNode(st.MakeNode().Name("node1").Obj())
+
+	pl := &DynamicResources{enabled: true, fts: feature.Features{EnableInPlacePodVerticalScalingSchedulerPreemption: true}}
+
+	if preRes, preStatus := pl.PreFilter(ctx, nil, pod, nil); preStatus.Code() != fwk.Skip || preRes != nil {
+		t.Errorf("PreFilter: got (res: %v, status: %v), want (nil, Skip)", preRes, preStatus.Code())
+	}
+
+	if filterStatus := pl.Filter(ctx, nil, pod, nodeInfo); filterStatus.Code() != fwk.Success {
+		t.Errorf("Filter: got status %v, want Success (nil)", filterStatus.Code())
+	}
+
+	if _, postStatus := pl.PostFilter(ctx, nil, pod, nil); postStatus.Code() != fwk.Unschedulable || postStatus.Message() != "" {
+		t.Errorf("PostFilter: got status (code: %v, msg: %q), want (Unschedulable, \"\")", postStatus.Code(), postStatus.Message())
+	}
+}
+
+func TestPodGroupPostFilter(t *testing.T) {
+	tCtx := ktesting.Init(t)
+
+	type testCase struct {
+		pluginEnabled                         bool
+		enableDRAWorkloadResourceClaims       bool
+		enableDRAExtendedResource             bool
+		enableTopologyAwareWorkloadScheduling bool
+		podGroups                             []*schedulingapi.PodGroup
+		claims                                []*resourceapi.ResourceClaim
+		classes                               []*resourceapi.DeviceClass
+		objs                                  []apiruntime.Object
+
+		// Inputs to PodGroupPostFilter
+		unscheduledPods       []*v1.Pod
+		unavailableClaimNames []string
+
+		// Expected results
+		wantStatus   *fwk.Status
+		verifyClaims func(tCtx ktesting.TContext, testCtx *testContext)
+	}
+
+	testcases := map[string]testCase{
+		"disabled": {
+			pluginEnabled:   false,
+			podGroups:       []*schedulingapi.PodGroup{podGroupWithClaimName},
+			unscheduledPods: []*v1.Pod{groupedPodWithClaimName},
+			wantStatus:      fwk.NewStatus(fwk.Unschedulable),
+		},
+		"empty": {
+			pluginEnabled:   true,
+			podGroups:       []*schedulingapi.PodGroup{podGroupWithClaimName},
+			unscheduledPods: []*v1.Pod{groupedPodWithClaimName},
+			claims:          []*resourceapi.ResourceClaim{pendingClaim},
+			wantStatus:      fwk.NewStatus(fwk.Unschedulable),
+		},
+		"deallocate-pod-level-claim": {
+			pluginEnabled:                   true,
+			enableDRAWorkloadResourceClaims: true,
+			podGroups:                       []*schedulingapi.PodGroup{podGroupWithClaimName},
+			unscheduledPods:                 []*v1.Pod{groupedPodWithClaimName},
+			claims:                          []*resourceapi.ResourceClaim{inUseClaim},
+			objs:                            []apiruntime.Object{groupedPodWithClaimName},
+			unavailableClaimNames:           []string{inUseClaim.Name},
+			wantStatus:                      fwk.NewStatus(fwk.Unschedulable, "deallocation and deletion of ResourceClaims completed"),
+			verifyClaims: func(tCtx ktesting.TContext, testCtx *testContext) {
+				claim, err := testCtx.client.ResourceV1().ResourceClaims(inUseClaim.Namespace).Get(tCtx, inUseClaim.Name, metav1.GetOptions{})
+				require.NoError(tCtx, err)
+				assert.Nil(tCtx, claim.Status.Allocation)
+				assert.Nil(tCtx, claim.Status.ReservedFor)
+			},
+		},
+		"delete-pod-level-extended-claim": {
+			pluginEnabled:             true,
+			enableDRAExtendedResource: true,
+			podGroups:                 []*schedulingapi.PodGroup{podGroupWithClaimName},
+			unscheduledPods:           []*v1.Pod{groupedPodWithClaimName},
+			claims: func() []*resourceapi.ResourceClaim {
+				// Create an extended resource claim owned by the pod
+				claim := inUseClaim.DeepCopy()
+				claim.Name = "pod-extended-resources"
+				if claim.Annotations == nil {
+					claim.Annotations = make(map[string]string)
+				}
+				claim.Annotations[resourceapi.ExtendedResourceClaimAnnotation] = "true"
+				claim.OwnerReferences = []metav1.OwnerReference{
+					{
+						APIVersion: "v1",
+						Kind:       "Pod",
+						Name:       groupedPodWithClaimName.Name,
+						UID:        groupedPodWithClaimName.UID,
+						Controller: new(true),
+					},
+				}
+				return []*resourceapi.ResourceClaim{claim, pendingClaim}
+			}(),
+			objs:                  []apiruntime.Object{groupedPodWithClaimName},
+			unavailableClaimNames: []string{"pod-extended-resources"},
+			wantStatus:            fwk.NewStatus(fwk.Unschedulable, "deallocation and deletion of ResourceClaims completed"),
+			verifyClaims: func(tCtx ktesting.TContext, testCtx *testContext) {
+				_, err := testCtx.client.ResourceV1().ResourceClaims(inUseClaim.Namespace).Get(tCtx, "pod-extended-resources", metav1.GetOptions{})
+				assert.Error(tCtx, err) // Should be deleted!
+			},
+		},
+		"unreserve-podgroup-claim": {
+			pluginEnabled:                   true,
+			enableDRAWorkloadResourceClaims: true,
+			podGroups:                       []*schedulingapi.PodGroup{podGroupWithClaimName},
+			unscheduledPods:                 []*v1.Pod{groupedPodWithClaimName},
+			claims:                          []*resourceapi.ResourceClaim{inUseClaimByPodGroup},
+			objs:                            []apiruntime.Object{groupedPodWithClaimName},
+			wantStatus:                      fwk.NewStatus(fwk.Unschedulable, "ResourceClaim unreserved for PodGroup"),
+			verifyClaims: func(tCtx ktesting.TContext, testCtx *testContext) {
+				claim, err := testCtx.client.ResourceV1().ResourceClaims(inUseClaimByPodGroup.Namespace).Get(tCtx, inUseClaimByPodGroup.Name, metav1.GetOptions{})
+				require.NoError(tCtx, err)
+				assert.Empty(tCtx, claim.Status.ReservedFor)
+			},
+		},
+		"unreserve-podgroup-multiple-unscheduled-pods": {
+			pluginEnabled:                   true,
+			enableDRAWorkloadResourceClaims: true,
+			podGroups:                       []*schedulingapi.PodGroup{podGroupWithClaimName},
+			unscheduledPods:                 []*v1.Pod{groupedPodWithClaimName, groupedPodWithClaimName2},
+			claims:                          []*resourceapi.ResourceClaim{inUseClaimByPodGroup},
+			objs:                            []apiruntime.Object{groupedPodWithClaimName, groupedPodWithClaimName2},
+			wantStatus:                      fwk.NewStatus(fwk.Unschedulable, "ResourceClaim unreserved for PodGroup"),
+			verifyClaims: func(tCtx ktesting.TContext, testCtx *testContext) {
+				claim, err := testCtx.client.ResourceV1().ResourceClaims(inUseClaimByPodGroup.Namespace).Get(tCtx, inUseClaimByPodGroup.Name, metav1.GetOptions{})
+				require.NoError(tCtx, err)
+				assert.Empty(tCtx, claim.Status.ReservedFor)
+			},
+		},
+		"mixed-pod-level-and-podgroup-claims": {
+			pluginEnabled:                   true,
+			enableDRAWorkloadResourceClaims: true,
+			podGroups:                       []*schedulingapi.PodGroup{podGroupWithClaimName},
+			unscheduledPods:                 []*v1.Pod{groupedPodWithClaimName, groupedPodWithPodLevelClaim},
+			claims:                          []*resourceapi.ResourceClaim{inUseClaimByPodGroup, inUseClaimForPodLevel},
+			objs:                            []apiruntime.Object{groupedPodWithClaimName, groupedPodWithPodLevelClaim},
+			unavailableClaimNames:           []string{inUseClaimForPodLevel.Name},
+			wantStatus:                      fwk.NewStatus(fwk.Unschedulable, "ResourceClaim unreserved for PodGroup"),
+			verifyClaims: func(tCtx ktesting.TContext, testCtx *testContext) {
+				claimByPG, err := testCtx.client.ResourceV1().ResourceClaims(inUseClaimByPodGroup.Namespace).Get(tCtx, inUseClaimByPodGroup.Name, metav1.GetOptions{})
+				require.NoError(tCtx, err)
+				assert.Empty(tCtx, claimByPG.Status.ReservedFor)
+
+				claim2, err := testCtx.client.ResourceV1().ResourceClaims(inUseClaimForPodLevel.Namespace).Get(tCtx, inUseClaimForPodLevel.Name, metav1.GetOptions{})
+				require.NoError(tCtx, err)
+				assert.Nil(tCtx, claim2.Status.Allocation)
+				assert.Nil(tCtx, claim2.Status.ReservedFor)
+			},
+		},
+		"skip-unreserve-feature-disabled": {
+			pluginEnabled:                   true,
+			enableDRAWorkloadResourceClaims: false,
+			podGroups:                       []*schedulingapi.PodGroup{podGroupWithClaimName},
+			unscheduledPods:                 []*v1.Pod{groupedPodWithClaimName},
+			claims:                          []*resourceapi.ResourceClaim{inUseClaimByPodGroup},
+			objs:                            []apiruntime.Object{groupedPodWithClaimName},
+			wantStatus:                      fwk.NewStatus(fwk.Unschedulable),
+			verifyClaims: func(tCtx ktesting.TContext, testCtx *testContext) {
+				claim, err := testCtx.client.ResourceV1().ResourceClaims(inUseClaimByPodGroup.Namespace).Get(tCtx, inUseClaimByPodGroup.Name, metav1.GetOptions{})
+				require.NoError(tCtx, err)
+				assert.NotEmpty(tCtx, claim.Status.ReservedFor)
+			},
+		},
+		"skip-unreserve-topology-aware-podgroup": {
+			pluginEnabled:                         true,
+			enableDRAWorkloadResourceClaims:       true,
+			enableTopologyAwareWorkloadScheduling: true,
+			podGroups:                             []*schedulingapi.PodGroup{podGroupWithClaimNameAndConstraints},
+			unscheduledPods:                       []*v1.Pod{groupedPodWithClaimName},
+			claims:                                []*resourceapi.ResourceClaim{inUseClaimByPodGroup},
+			objs:                                  []apiruntime.Object{groupedPodWithClaimName},
+			wantStatus:                            fwk.NewStatus(fwk.Unschedulable),
+			verifyClaims: func(tCtx ktesting.TContext, testCtx *testContext) {
+				claim, err := testCtx.client.ResourceV1().ResourceClaims(inUseClaimByPodGroup.Namespace).Get(tCtx, inUseClaimByPodGroup.Name, metav1.GetOptions{})
+				require.NoError(tCtx, err)
+				assert.NotEmpty(tCtx, claim.Status.ReservedFor)
+			},
+		},
+	}
+
+	for name, tc := range testcases {
+		tCtx.Run(name, func(tCtx ktesting.TContext) {
+			featuregatetesting.SetFeatureGatesDuringTest(tCtx, utilfeature.DefaultFeatureGate, featuregatetesting.FeatureOverrides{
+				features.DRAWorkloadResourceClaims:       tc.enableDRAWorkloadResourceClaims,
+				features.TopologyAwareWorkloadScheduling: tc.enableTopologyAwareWorkloadScheduling,
+				features.GenericWorkload:                 true,
+			})
+
+			feats := feature.Features{
+				EnableDRAAdminAccess:                  true,
+				EnableDRADeviceBindingConditions:      true,
+				EnableDRAResourceClaimDeviceStatus:    true,
+				EnableDRASchedulerFilterTimeout:       true,
+				EnableDynamicResourceAllocation:       tc.pluginEnabled,
+				EnableDRAWorkloadResourceClaims:       tc.enableDRAWorkloadResourceClaims,
+				EnableDRAExtendedResource:             tc.enableDRAExtendedResource,
+				EnableTopologyAwareWorkloadScheduling: tc.enableTopologyAwareWorkloadScheduling,
+			}
+
+			testCtx := setup(tCtx, nil, []*v1.Node{workerNode}, tc.claims, tc.classes, tc.podGroups, tc.objs, feats, false, nil)
+			testCtx.p.enabled = tc.pluginEnabled
+
+			podGroupCycleState := framework.NewCycleState()
+			podGroupState := &podGroupStateData{
+				pendingAllocations: sets.New[types.UID](),
+				podsStateData:      make(map[types.NamespacedName]*stateData),
+			}
+			podGroupCycleState.Write(stateKey, podGroupState)
+
+			if tc.pluginEnabled {
+				claimsList, err := testCtx.client.ResourceV1().ResourceClaims("").List(tCtx, metav1.ListOptions{})
+				require.NoError(tCtx, err)
+				var testClaims []*resourceapi.ResourceClaim
+				for i := range claimsList.Items {
+					testClaims = append(testClaims, &claimsList.Items[i])
+				}
+
+				for _, pod := range tc.unscheduledPods {
+					// Initialize the stateData of the pod with unavailable claims
+					s := &stateData{}
+					userClaims, err := testCtx.p.podResourceClaims(pod)
+					require.NoError(tCtx, err)
+					extendedResourceClaim := findExtendedResourceClaim(pod, testClaims)
+					s.claims = newClaimStore(userClaims, extendedResourceClaim, nil)
+
+					if len(tc.unavailableClaimNames) > 0 {
+						s.unavailableClaims = sets.New[int]()
+						for _, name := range tc.unavailableClaimNames {
+							for index, claim := range s.claims.all() {
+								if claim.Name == name {
+									s.unavailableClaims.Insert(index)
+								}
+							}
+						}
+					}
+					podGroupState.podsStateData[types.NamespacedName{Namespace: pod.Namespace, Name: pod.Name}] = s
+				}
+			}
+
+			pgInfo := &framework.PodGroupInfo{
+				Name:            tc.podGroups[0].Name,
+				Namespace:       tc.podGroups[0].Namespace,
+				UnscheduledPods: tc.unscheduledPods,
+				PodGroup:        tc.podGroups[0],
+			}
+
+			mockSchedulingFunc := func(ctx context.Context) (*fwk.PodGroupAssignments, *fwk.Status) {
+				return nil, fwk.NewStatus(fwk.Unschedulable)
+			}
+
+			_, gotStatus := testCtx.p.PodGroupPostFilter(tCtx, podGroupCycleState, pgInfo, mockSchedulingFunc)
+
+			if tc.wantStatus.AsError() != nil {
+				require.ErrorContains(tCtx, gotStatus.AsError(), tc.wantStatus.AsError().Error())
+			} else {
+				assert.Equal(tCtx, tc.wantStatus, gotStatus)
+			}
+
+			if tc.verifyClaims != nil {
+				tc.verifyClaims(tCtx, testCtx)
+			}
+		})
+	}
 }

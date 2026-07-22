@@ -141,7 +141,7 @@ func (cm *containerManagerStub) GetDevices(_, _ string) []*podresourcesapi.Conta
 	return nil
 }
 
-func (cm *containerManagerStub) GetAllocatableDevices() []*podresourcesapi.ContainerDevices {
+func (cm *containerManagerStub) GetAllocatableDevices(logger klog.Logger) []*podresourcesapi.ContainerDevices {
 	return nil
 }
 
@@ -153,11 +153,15 @@ func (cm *containerManagerStub) GetAllocateResourcesPodAdmitHandler(logger klog.
 	return topologymanager.NewFakeManager(logger)
 }
 
-func (cm *containerManagerStub) UpdateAllocatedDevices() {
+func (cm *containerManagerStub) UpdateAllocatedDevices(_ klog.Logger) {
 	return
 }
 
-func (cm *containerManagerStub) GetCPUs(_, _ string) []int64 {
+func (cm *containerManagerStub) GetCPUs(pod *v1.Pod, container *v1.Container) []int64 {
+	return nil
+}
+
+func (cm *containerManagerStub) GetPodCPUs(_ string) []int64 {
 	return nil
 }
 
@@ -165,11 +169,15 @@ func (cm *containerManagerStub) GetAllocatableCPUs() []int64 {
 	return nil
 }
 
-func (cm *containerManagerStub) GetMemory(_, _ string) []*podresourcesapi.ContainerMemory {
+func (cm *containerManagerStub) GetMemory(_ klog.Logger, pod *v1.Pod, container *v1.Container) []*podresourcesapi.ContainerMemory {
 	return nil
 }
 
-func (cm *containerManagerStub) GetAllocatableMemory() []*podresourcesapi.ContainerMemory {
+func (cm *containerManagerStub) GetPodMemory(_ klog.Logger, _ string) []*podresourcesapi.ContainerMemory {
+	return nil
+}
+
+func (cm *containerManagerStub) GetAllocatableMemory(_ klog.Logger) []*podresourcesapi.ContainerMemory {
 	return nil
 }
 
@@ -193,7 +201,7 @@ func (cm *containerManagerStub) PodMightNeedToUnprepareResources(UID types.UID) 
 	return false
 }
 
-func (cm *containerManagerStub) UpdateAllocatedResourcesStatus(pod *v1.Pod, status *v1.PodStatus) {
+func (cm *containerManagerStub) UpdateAllocatedResourcesStatus(logger klog.Logger, pod *v1.Pod, status *v1.PodStatus) {
 }
 
 func (cm *containerManagerStub) Updates() <-chan resourceupdates.Update {

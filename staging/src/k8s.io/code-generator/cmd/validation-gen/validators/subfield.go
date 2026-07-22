@@ -58,6 +58,15 @@ var (
 )
 
 func (stv *subfieldTagValidator) GetValidations(context Context, tag codetags.Tag) (Validations, error) {
+	// TODO: Support nested subfields once the generated validation code can
+	// prevent nil pointer dereferences by checking optionality or requiredness
+	// for intermediate fields.
+	for t := tag.ValueTag; t != nil; t = t.ValueTag {
+		if t.Name == subfieldTagName {
+			return Validations{}, fmt.Errorf("nested +%s tags are unsupported; apply validations directly to the nested type instead", subfieldTagName)
+		}
+	}
+
 	args := tag.Args
 	// This tag can apply to value and pointer fields, as well as typedefs
 	// (which should never be pointers). We need to check the concrete type.
@@ -108,7 +117,7 @@ func (stv *subfieldTagValidator) GetValidations(context Context, tag codetags.Ta
 	if util.IsDirectComparable(util.NonPointer(util.NativeType(submemb.Type))) {
 		// It must be a pointer, since other nilable types are not directly
 		// comparable.
-		equivArg = Identifier(validateDirectEqualPtr)
+		equivArg = Identifier(validateDirectEqual)
 	}
 
 	tagValidations, err := stv.validator.ExtractTagValidations(subContext, *tag.ValueTag)

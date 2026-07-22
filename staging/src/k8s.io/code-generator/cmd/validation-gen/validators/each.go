@@ -67,9 +67,9 @@ func (eachValTagValidator) ValidScopes() sets.Set[Scope] {
 }
 
 var (
-	validateEachSliceVal   = types.Name{Package: libValidationPkg, Name: "EachSliceVal"}
-	validateEachMapVal     = types.Name{Package: libValidationPkg, Name: "EachMapVal"}
-	validateDirectEqualPtr = types.Name{Package: libValidationPkg, Name: "DirectEqualPtr"}
+	validateEachValSliceVal = types.Name{Package: libValidationPkg, Name: "EachValSliceVal"}
+	validateEachPtrSliceVal = types.Name{Package: libValidationPkg, Name: "EachPtrSliceVal"}
+	validateEachMapVal      = types.Name{Package: libValidationPkg, Name: "EachMapVal"}
 )
 
 func (evtv eachValTagValidator) GetValidations(context Context, tag codetags.Tag) (Validations, error) {
@@ -214,10 +214,15 @@ func (evtv eachValTagValidator) getListValidations(fldPath *field.Path, t *types
 		}
 	}
 
+	validateFunc := validateEachValSliceVal
+	if nt.Elem.Kind == types.Pointer {
+		validateFunc = validateEachPtrSliceVal
+	}
+
 	wrapped := WrapFunctions(validations, func(vfn FunctionGen, _ DeferredScope) FunctionGen {
 		comm := vfn.Comments
 		vfn.Comments = nil
-		return Function(eachValTagName, vfn.Flags, validateEachSliceVal, matchArg, equivArg, WrapperFunction{Function: vfn, ObjType: nt.Elem, PathFragment: "[*]"}).WithComments(comm...)
+		return Function(eachValTagName, vfn.Flags, validateFunc, matchArg, equivArg, WrapperFunction{Function: vfn, ObjType: nt.Elem, PathFragment: "[*]"}).WithComments(comm...)
 	})
 	// Only Functions/Deferred carry forward; element opacity becomes value opacity.
 	return Validations{
@@ -250,7 +255,7 @@ func (evtv eachValTagValidator) getMapValidations(t *types.Type, validations Val
 func (evtv eachValTagValidator) Docs() TagDoc {
 	doc := TagDoc{
 		Tag:            evtv.TagName(),
-		StabilityLevel: TagStabilityLevelAlpha,
+		StabilityLevel: TagStabilityLevelStable,
 		Scopes:         sets.List(evtv.ValidScopes()),
 		Description:    "Declares a validation for each value in a map or list.",
 		Payloads: []TagPayloadDoc{{
@@ -368,8 +373,8 @@ func (ektv eachKeyTagValidator) Docs() TagDoc {
 	doc := TagDoc{
 		Tag:            ektv.TagName(),
 		Scopes:         sets.List(ektv.ValidScopes()),
-		StabilityLevel: TagStabilityLevelBeta,
-		Description:    "Declares a validation for each value in a map or list.",
+		StabilityLevel: TagStabilityLevelStable,
+		Description:    "Declares a validation for each key in a map.",
 		Payloads: []TagPayloadDoc{{
 			Description: "<validation-tag>",
 			Docs:        "The tag to evaluate for each key.",
@@ -378,4 +383,14 @@ func (ektv eachKeyTagValidator) Docs() TagDoc {
 		PayloadsRequired: true,
 	}
 	return doc
+}
+
+var (
+	validatePtrSliceNoNils = types.Name{Package: libValidationPkg, Name: "PtrSliceNoNils"}
+)
+
+// PtrSliceNoNils returns a synthetic validation that rejects nil elements of a
+// pointer slice. It is not tag-driven; the generator injects it for []*T fields.
+func PtrSliceNoNils(elemType types.Name) FunctionGen {
+	return Function("PtrSliceNoNils", ShortCircuit, validatePtrSliceNoNils).WithTypeArgs(elemType)
 }
