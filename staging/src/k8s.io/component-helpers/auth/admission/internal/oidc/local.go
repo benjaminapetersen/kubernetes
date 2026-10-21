@@ -52,6 +52,9 @@ const (
 // A missing audience is an error even when discovery and TLS are in-cluster.
 // A removed key may remain usable for at most 60 seconds while its snapshot is
 // fresh; an unavailable apiserver after that deadline fails closed.
+//
+// 23.) Consumer startup reaches this library constructor, not a main or URL handler.
+// Local authentication is wrapped in API-group attestation policy and audience binding.
 func NewLocalKeySetVerifier(ctx context.Context, apiServerURL, audience string, httpClient *http.Client) (*verify.Verifier, error) {
 	authenticator, err := newLocalAuthenticator(ctx, apiServerURL, audience, httpClient, time.Now)
 	if err != nil {
@@ -67,6 +70,8 @@ func NewLocalKeySetVerifier(ctx context.Context, apiServerURL, audience string, 
 	return v, nil
 }
 
+// 24.) NewLocalKeySetVerifier calls here to pin local trust and fetch startup keys.
+// Discovery and later reloads use the same TLS origin and fixed local JWKS path.
 func newLocalAuthenticator(ctx context.Context, apiServerURL, audience string, httpClient *http.Client, now func() time.Time) (*oidcAuthenticator, error) {
 	if audience == "" {
 		return nil, errors.New("oidc: the webhook's configured audience must not be empty")
@@ -139,6 +144,9 @@ func newLocalAuthenticator(ctx context.Context, apiServerURL, audience string, h
 // inClusterHTTPClient retains the projected ServiceAccount bearer because the
 // apiserver grants OIDC discovery to service accounts, not anonymous callers.
 // newLocalAuthenticator pins every request and redirect to this apiserver origin.
+//
+// 25.) Local startup derives the apiserver origin, token and CA from the Pod via client-go.
+// These credentials authenticate outbound discovery/key fetches, not webhook bearers.
 func inClusterHTTPClient() (string, *http.Client, error) {
 	cfg, err := rest.InClusterConfig()
 	if err != nil {
@@ -151,12 +159,14 @@ func inClusterHTTPClient() (string, *http.Client, error) {
 	return cfg.Host, client, nil
 }
 
+// 26.) In-cluster startup refuses a client without explicit apiserver CA trust.
 func serviceAccountTLSClientForConfig(cfg *rest.Config) (*http.Client, error) {
 	// InClusterConfig logs CA failures but can still return a config. Refuse
 	// ambient system roots rather than quietly dropping the apiserver trust pin.
 	if cfg == nil || cfg.TLSClientConfig.Insecure || cfg.TLSClientConfig.CAFile == "" && len(cfg.TLSClientConfig.CAData) == 0 {
 		return nil, fmt.Errorf("oidc: projected ServiceAccount CA %q is missing or invalid", serviceAccountCAPath)
 	}
+	// client-go builds the TLS/auth transport, retaining the ServiceAccount bearer.
 	client, err := rest.HTTPClientFor(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("oidc: creating trusted in-cluster HTTP client: %w", err)
@@ -167,6 +177,9 @@ func serviceAccountTLSClientForConfig(cfg *rest.Config) (*http.Client, error) {
 // fetchLocalIssuer GETs the OIDC discovery document at discoveryURL and returns
 // its "issuer". A non-200 response, an unreadable or malformed body, or an empty
 // issuer is an error.
+//
+// 27.) Local startup and refresh read only the issuer from the pinned apiserver.
+// The caller confines redirects to that HTTPS origin; advertised JWKS URIs are ignored.
 func fetchLocalIssuer(ctx context.Context, client *http.Client, discoveryURL string) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, discoveryURL, nil)
 	if err != nil {

@@ -32,6 +32,8 @@ import (
 	"k8s.io/component-helpers/auth/admission/internal/oidc"
 )
 
+// TestRemoteVerifier_SigningKeyReadiness checks construction and readiness track
+// usable JWKS availability and recovery in a TLS issuer fixture.
 func TestRemoteVerifier_SigningKeyReadiness(t *testing.T) {
 	privateKey, signer := genSigner(t)
 	keys := jwksBytes(t, &privateKey.PublicKey)
@@ -92,6 +94,8 @@ func TestRemoteVerifier_SigningKeyReadiness(t *testing.T) {
 	}
 }
 
+// TestRemoteVerifier_RejectsMalformedSigningKeys checks malformed RSA JWK material
+// prevents construction instead of reporting a ready verifier.
 func TestRemoteVerifier_RejectsMalformedSigningKeys(t *testing.T) {
 	var issuer string
 	mux := http.NewServeMux()
@@ -115,6 +119,8 @@ func TestRemoteVerifier_RejectsMalformedSigningKeys(t *testing.T) {
 	}
 }
 
+// TestRemoteVerifier_MixedSupportedAndUnsupportedKeys checks that a usable RSA JWK
+// still verifies a locally signed token when unrelated unsupported JWKs are present.
 func TestRemoteVerifier_MixedSupportedAndUnsupportedKeys(t *testing.T) {
 	privateKey, signer := genSigner(t)
 	body, err := json.Marshal(map[string]any{"keys": []any{
@@ -151,6 +157,8 @@ func TestRemoteVerifier_MixedSupportedAndUnsupportedKeys(t *testing.T) {
 	}
 }
 
+// TestLocalVerifierRejectsUnsupportedOnlyJWKS contrasts local rejection of
+// EdDSA-only keys with remote construction when the fixture advertises EdDSA.
 func TestLocalVerifierRejectsUnsupportedOnlyJWKS(t *testing.T) {
 	publicKey, _, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -185,6 +193,8 @@ func TestLocalVerifierRejectsUnsupportedOnlyJWKS(t *testing.T) {
 	}
 }
 
+// TestLocalVerifierRejectsCrossOriginJWKSRedirect checks that local construction
+// rejects an off-origin JWKS redirect before contacting its target.
 func TestLocalVerifierRejectsCrossOriginJWKSRedirect(t *testing.T) {
 	privateKey, _ := genSigner(t)
 	keys := jwksBytes(t, &privateKey.PublicKey)

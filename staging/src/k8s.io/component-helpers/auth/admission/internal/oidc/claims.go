@@ -30,6 +30,9 @@ type unverifiedClaims struct {
 
 // parseUnverifiedClaims reads an untrusted issuer hint from a compact JWT.
 // Authorization still requires signature verification.
+//
+// 43.) Token-cache misses use this only to reject an obviously wrong issuer early.
+// Decoded payload bytes remain untrusted until go-oidc verifies the token.
 func parseUnverifiedClaims(token string) (unverifiedClaims, error) {
 	if strings.HasPrefix(strings.TrimSpace(token), "{") {
 		return unverifiedClaims{}, errors.New("token is not a compact JWT")

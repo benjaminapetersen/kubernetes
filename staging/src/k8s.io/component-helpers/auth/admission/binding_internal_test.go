@@ -35,6 +35,8 @@ func (*readinessSpy) AuthenticateToken(context.Context, string) ([]string, error
 func (*readinessSpy) BindAudience(string) error { return nil }
 func (s *readinessSpy) HealthCheck() error      { return s.healthErr }
 
+// TestHandlerHealthCheckDelegates checks readiness error and recovery propagation
+// through the handler wrappers using an injected authenticator, not a live issuer.
 func TestHandlerHealthCheckDelegates(t *testing.T) {
 	spy := &readinessSpy{healthErr: errors.New("issuer signing keys unavailable")}
 	verifier, err := verify.NewVerifier(spy)

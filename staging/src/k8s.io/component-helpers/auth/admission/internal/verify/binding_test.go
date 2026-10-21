@@ -42,11 +42,8 @@ func (f *fakeBinder) BindAudience(audience string) error {
 
 func (f *fakeBinder) HealthCheck() error { return f.healthErr }
 
-// TestVerifier_BindAudience_NoopForFixedAudienceAuthenticator confirms that on a
-// fixed-audience authenticator (the out-of-cluster case, modelled by the plain
-// fakeAuthenticator) BindAudience and HealthCheck are no-ops that report ready.
-// Delegation is direct (both are part of TokenAuthenticator), not an
-// optional-interface type assertion.
+// TestVerifier_BindAudience_NoopForFixedAudienceAuthenticator checks that a fake
+// fixed-audience authenticator's no-op binding and readiness methods pass through.
 func TestVerifier_BindAudience_NoopForFixedAudienceAuthenticator(t *testing.T) {
 	v := mustVerifier(t, fakeAuthenticator{groups: []string{testGroup}})
 	if err := v.BindAudience("https://webhook.example/validate"); err != nil {

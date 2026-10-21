@@ -54,8 +54,8 @@ func TestNewVerifier_Validation(t *testing.T) {
 	}
 }
 
-// TestVerify covers the policy: the authenticator's admissionReviewAPIGroups list must
-// contain the review group or "*"; any failure returns errVerificationFailed.
+// TestVerify checks exact, wildcard, and denied group policy with a fake
+// authenticator; JWT parsing and cryptography are outside this test.
 func TestVerify(t *testing.T) {
 	tests := []struct {
 		name    string

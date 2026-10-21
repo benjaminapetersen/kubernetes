@@ -67,8 +67,8 @@ func jwksBytes(t *testing.T, pub *rsa.PublicKey) []byte {
 	return b
 }
 
-// localClaims is a valid KEP-6060 token claim set for the given issuer, with the
-// audience the tests bind and the wildcard attestation group.
+// localClaims supplies synthetic webhook-bound claims for the given issuer,
+// configured audience, and test API group.
 func localClaims(issuer string) map[string]any {
 	now := time.Now()
 	return map[string]any{
@@ -144,9 +144,8 @@ func newLocalAPIServer(t *testing.T) *localAPIServer {
 	return s
 }
 
-// TestNewLocalKeySetVerifier_HappyPath verifies the whole in-cluster construction
-// path: read the issuer from the local discovery document, fetch keys from the
-// local JWKS endpoint, and — once the audience is bound — verify a real token.
+// TestNewLocalKeySetVerifier_HappyPath checks local discovery/JWKS construction
+// and signed-token verification using a TLS test double, not a real apiserver.
 func TestNewLocalKeySetVerifier_HappyPath(t *testing.T) {
 	s := newLocalAPIServer(t)
 
@@ -164,6 +163,8 @@ func TestNewLocalKeySetVerifier_HappyPath(t *testing.T) {
 	}
 }
 
+// TestNewLocalKeySetVerifier_SigningAlgorithms checks synthetic ES256 acceptance
+// and HS256 denial; it does not explicitly refresh the appended symmetric JWK.
 func TestNewLocalKeySetVerifier_SigningAlgorithms(t *testing.T) {
 	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -246,8 +247,8 @@ func TestNewLocalKeySetVerifier_UsesLocalJWKSNotDiscoveryURI(t *testing.T) {
 	}
 }
 
-// TestNewLocalKeySetVerifier_RequiresAudienceBeforeDiscovery ensures an
-// unconfigured receiver fails before it can trust any incoming token.
+// TestNewLocalKeySetVerifier_RequiresAudienceBeforeDiscovery checks missing-audience
+// rejection and configured readiness; the negative case does not count discovery calls.
 func TestNewLocalKeySetVerifier_RequiresAudienceBeforeDiscovery(t *testing.T) {
 	if _, err := oidc.NewLocalKeySetVerifier(context.Background(), "https://unreachable.invalid", "", &http.Client{}); err == nil {
 		t.Fatal("expected a missing audience to fail before discovery")
@@ -266,9 +267,8 @@ func TestNewLocalKeySetVerifier_RequiresAudienceBeforeDiscovery(t *testing.T) {
 	}
 }
 
-// TestNewLocalKeySetVerifier_RejectsWrongIssuerToken confirms a token minted by a
-// different issuer is denied even after the audience is bound: the issuer read
-// from local discovery is enforced.
+// TestNewLocalKeySetVerifier_RejectsWrongIssuerToken checks a validly signed fixture
+// token is denied when its issuer claim differs from local discovery.
 func TestNewLocalKeySetVerifier_RejectsWrongIssuerToken(t *testing.T) {
 	s := newLocalAPIServer(t)
 
@@ -304,10 +304,8 @@ func TestNewLocalKeySetVerifier_TrimsTrailingSlash(t *testing.T) {
 	}
 }
 
-// TestNewLocalKeySetVerifier_ConstructionErrors covers each way construction can
-// fail before a verifier exists — no URL, and discovery documents that are
-// absent, malformed, or missing the issuer — each erroring rather than building
-// against an unknown issuer.
+// TestNewLocalKeySetVerifier_ConstructionErrors checks empty endpoint and missing,
+// malformed, or issuer-less fixture discovery documents fail construction.
 func TestNewLocalKeySetVerifier_ConstructionErrors(t *testing.T) {
 	t.Run("empty apiServerURL", func(t *testing.T) {
 		if _, err := oidc.NewLocalKeySetVerifier(context.Background(), "", testAudience, &http.Client{}); err == nil {

@@ -32,6 +32,8 @@ import (
 	"k8s.io/client-go/rest"
 )
 
+// projectedTokenFile supplies static bearer-file test data, not an issued or
+// Kubernetes-projected token; these tests do not exercise token-file rotation.
 func projectedTokenFile(t *testing.T) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "token")
@@ -45,6 +47,8 @@ func testServerCA(server *httptest.Server) []byte {
 	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw})
 }
 
+// TestInClusterHTTPClientKeepsCAAndProjectedBearer checks trusted TLS and bearer-file
+// transport plus rejection of missing/insecure CA settings, using a static token fixture.
 func TestInClusterHTTPClientKeepsCAAndProjectedBearer(t *testing.T) {
 	authorizations := make(chan string, 1)
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -86,6 +90,8 @@ func TestInClusterHTTPClientKeepsCAAndProjectedBearer(t *testing.T) {
 	}
 }
 
+// TestLocalVerifierAuthenticatesDiscoveryAndEveryJWKSRefresh checks initial and
+// fake-clock-triggered refresh requests carry the fixture's static bearer over TLS.
 func TestLocalVerifierAuthenticatesDiscoveryAndEveryJWKSRefresh(t *testing.T) {
 	signer, key, _ := refreshSigningKey(t, jose.RS256, "local-key")
 	var discoveryCalls, keyCalls atomic.Int32
@@ -139,6 +145,8 @@ func TestLocalVerifierAuthenticatesDiscoveryAndEveryJWKSRefresh(t *testing.T) {
 	}
 }
 
+// TestLocalVerifierNeverSendsProjectedBearerAcrossRedirect checks an off-origin
+// refresh is blocked despite trusting both TLS certificates; the bearer is static test data.
 func TestLocalVerifierNeverSendsProjectedBearerAcrossRedirect(t *testing.T) {
 	signer, key, _ := refreshSigningKey(t, jose.RS256, "local-key")
 	var redirected atomic.Int32
