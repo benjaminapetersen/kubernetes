@@ -24,6 +24,9 @@ import (
 // AudienceForService formats the API server's Service-backed webhook audience:
 // https://<name>.<namespace>.svc:<port><path>. It defaults port 443 and prepends
 // "/" when the path lacks one. A URL-backed webhook uses its configured URL.
+// 53.) Only tests currently call this formatter; constructors take an audience.
+// Both Service inputs and URL-backed audiences must come from trusted config,
+// never incoming HTTP Host or paths.
 func AudienceForService(name, namespace string, port int32, path string) string {
 	if port == 0 {
 		port = 443

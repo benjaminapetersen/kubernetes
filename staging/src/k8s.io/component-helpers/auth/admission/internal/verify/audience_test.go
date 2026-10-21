@@ -22,6 +22,8 @@ import (
 	"testing"
 )
 
+// TestAudienceForService checks exact Service audience formatting, including
+// default port and normalized paths, without contacting a Service or issuer.
 func TestAudienceForService(t *testing.T) {
 	tests := []struct {
 		name      string

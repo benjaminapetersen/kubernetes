@@ -127,9 +127,8 @@ func (ts *rotatingOIDCServer) baseClaims() map[string]any {
 	}
 }
 
-// TestRemoteVerifier_KeyRotation verifies that an unknown signing key does not
-// trigger a per-token JWKS fetch. The new key becomes usable at the next bounded
-// refresh; a separate test advances the refresh clock without sleeping.
+// TestRemoteVerifier_KeyRotation checks pre-rotation acceptance and immediate
+// rejection of a TLS fixture's new key; it does not advance time or test later acceptance.
 func TestRemoteVerifier_KeyRotation(t *testing.T) {
 	ts := newRotatingOIDCServer(t)
 

@@ -21,6 +21,8 @@ import (
 	"testing"
 )
 
+// TestParseUnverifiedClaimsRequiresCompactJWT checks compact framing and payload
+// decoding only; its synthetic header/signature segments establish no token trust.
 func TestParseUnverifiedClaimsRequiresCompactJWT(t *testing.T) {
 	payload := base64.RawURLEncoding.EncodeToString([]byte(`{"iss":"https://issuer.test"}`))
 	invalidJSON := base64.RawURLEncoding.EncodeToString([]byte(`{"iss":`))

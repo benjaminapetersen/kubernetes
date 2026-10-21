@@ -241,9 +241,8 @@ type erroringBody struct{}
 func (erroringBody) Read([]byte) (int, error) { return 0, errors.New("connection reset") }
 func (erroringBody) Close() error             { return nil }
 
-// TestWithTokenVerification_BodyReadErrorFailsClosed proves fail-closed on a
-// body that cannot be read to completion (mid-transfer I/O error): generic 401,
-// downstream not reached, never proceeding on a partial or empty review.
+// TestWithTokenVerification_BodyReadErrorFailsClosed checks an injected Read error
+// produces a generic 401 and skips admission logic, without an actual network failure.
 func TestWithTokenVerification_BodyReadErrorFailsClosed(t *testing.T) {
 	ts := newOIDCTestServer(t)
 	v := ts.verifier(t)
@@ -305,8 +304,8 @@ func (c *closeOnceBody) stats() (closes int, readAfterClose bool) {
 	return c.closes, c.readAfor
 }
 
-// TestWithTokenVerification_DecodeOnce_BodyConsumedExactlyOnce checks that the
-// adapter closes the body once and does not decode it again afterward.
+// TestWithTokenVerification_DecodeOnce_BodyConsumedExactlyOnce checks one close,
+// no reads after close, and decoded handoff; it does not count JSON unmarshals.
 func TestWithTokenVerification_DecodeOnce_BodyConsumedExactlyOnce(t *testing.T) {
 	ts := newOIDCTestServer(t)
 	v := ts.verifier(t)
@@ -373,8 +372,8 @@ func TestVerifierVerify_ZeroDecode(t *testing.T) {
 	}
 }
 
-// TestNewVerifier_InClusterExplicitAudience verifies that an explicitly bound
-// audience makes the decoded in-cluster path ready before its first request.
+// TestNewVerifier_InClusterExplicitAudience checks eager readiness and audience
+// enforcement using an injected TLS discovery/JWKS server, not in-cluster credentials.
 func TestNewVerifier_InClusterExplicitAudience(t *testing.T) {
 	ts := newOIDCTestServer(t)
 

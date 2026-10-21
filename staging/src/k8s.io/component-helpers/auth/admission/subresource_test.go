@@ -27,6 +27,8 @@ import (
 	"k8s.io/component-helpers/auth/admission"
 )
 
+// TestVerifier_SubresourceKindAndObjectGroups checks the Scale exception while
+// rejecting forged subresources and mismatched raw object kinds in synthetic reviews.
 func TestVerifier_SubresourceKindAndObjectGroups(t *testing.T) {
 	ts := newOIDCTestServer(t)
 	verifier, err := admission.NewVerifier(context.Background(), admission.WithRemoteIssuer(ts.issuer, testAudience, ts.client()))
@@ -97,6 +99,8 @@ func TestVerifier_SubresourceKindAndObjectGroups(t *testing.T) {
 	}
 }
 
+// TestVerifier_DecodedObjectsMatchAdmittedKind checks already-decoded current and
+// old objects against the admitted kind, including missing type metadata.
 func TestVerifier_DecodedObjectsMatchAdmittedKind(t *testing.T) {
 	ts := newOIDCTestServer(t)
 	verifier, err := admission.NewVerifier(context.Background(), admission.WithRemoteIssuer(ts.issuer, testAudience, ts.client()))
@@ -137,6 +141,8 @@ func TestVerifier_DecodedObjectsMatchAdmittedKind(t *testing.T) {
 	}
 }
 
+// TestVerifier_CoreCrossGroupSubresources checks the Pod eviction and ServiceAccount
+// token kind exceptions under wildcard claims, rejecting forged subresource combinations.
 func TestVerifier_CoreCrossGroupSubresources(t *testing.T) {
 	ts := newOIDCTestServer(t)
 	verifier, err := admission.NewVerifier(context.Background(), admission.WithRemoteIssuer(ts.issuer, testAudience, ts.client()))
@@ -188,6 +194,8 @@ func TestVerifier_CoreCrossGroupSubresources(t *testing.T) {
 	}
 }
 
+// TestVerifier_RejectsMissingObjectTypeMetaForCoreGroup checks that null, empty,
+// and versionless objects cannot masquerade as core-group objects even with wildcard claims.
 func TestVerifier_RejectsMissingObjectTypeMetaForCoreGroup(t *testing.T) {
 	ts := newOIDCTestServer(t)
 	verifier, err := admission.NewVerifier(context.Background(), admission.WithRemoteIssuer(ts.issuer, testAudience, ts.client()))

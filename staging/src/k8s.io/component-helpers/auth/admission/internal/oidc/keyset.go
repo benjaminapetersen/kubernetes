@@ -47,6 +47,8 @@ var serviceAccountSigningAlgs = []string{"ES256", "ES384", "ES512", "RS256"}
 // A remote OIDC issuer may advertise additional asymmetric signing algorithms.
 var remoteSigningAlgs = []string{"ES256", "ES384", "ES512", "RS256", "RS384", "RS512", "PS256", "PS384", "PS512", "EdDSA"}
 
+// 44.) Local/remote startup copy the HTTP client to bound discovery and key fetches.
+// Timeouts are capped at ten seconds and redirects cannot downgrade from HTTPS.
 func boundedHTTPClient(client *http.Client) *http.Client {
 	if client == nil {
 		client = http.DefaultClient
@@ -78,6 +80,8 @@ type keySetReadiness struct {
 	allowed    map[string]bool
 }
 
+// 45.) Local/remote loaders validate the JWKS URL and freeze their algorithm choices here.
+// This prepares a loader; it neither fetches keys nor establishes readiness yet.
 func newKeySetReadiness(uri string, client *http.Client, signingAlgs []string) (*keySetReadiness, error) {
 	u, err := url.Parse(uri)
 	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.Fragment != "" {
@@ -96,6 +100,9 @@ func newKeySetReadiness(uri string, client *http.Client, signingAlgs []string) (
 // loadKeys returns exactly the validated keys used by the verifier. Probing a
 // different key set would allow readiness to succeed while verification still
 // trusts a removed key.
+//
+// 46.) Startup and shared refreshes GET the JWKS, with byte and key-count limits.
+// Only validated, algorithm-compatible public signing keys enter a snapshot.
 func (r *keySetReadiness) loadKeys(ctx context.Context) (*jwksKeySet, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, r.uri, nil)
 	if err != nil {
@@ -166,6 +173,8 @@ func (r *keySetReadiness) loadKeys(ctx context.Context) (*jwksKeySet, error) {
 	return &jwksKeySet{keys: keys, algorithms: algorithms}, nil
 }
 
+// 47.) JWKS loading and signature selection both apply this key/algorithm constraint.
+// RSA strength and EC-curve matching prevent trusting an unsuitable key.
 func keySupportsAlgorithm(key jose.JSONWebKey, algorithm string) bool {
 	if key.Algorithm != "" && key.Algorithm != algorithm {
 		return false
@@ -201,6 +210,8 @@ type jwksKeySet struct {
 	algorithms []jose.SignatureAlgorithm
 }
 
+// 48.) go-oidc reaches this during request verification when claims are not cached.
+// Current-snapshot kid/algorithm filtering precedes cryptographic verification.
 func (s *jwksKeySet) VerifySignature(ctx context.Context, jwt string) ([]byte, error) {
 	jws, err := jose.ParseSigned(jwt, s.algorithms)
 	if err != nil {
@@ -219,5 +230,6 @@ func (s *jwksKeySet) VerifySignature(ctx context.Context, jwt string) ([]byte, e
 	if len(publicKeys) == 0 {
 		return nil, errors.New("oidc: token signing key is not in the current JWKS")
 	}
+	// StaticKeySet tries the selected keys; this path does no network lookup.
 	return (&coreosoidc.StaticKeySet{PublicKeys: publicKeys}).VerifySignature(ctx, jwt)
 }

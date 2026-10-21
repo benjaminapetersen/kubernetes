@@ -45,6 +45,10 @@ import (
 	"k8s.io/kubernetes/test/integration/framework"
 )
 
+// TestWebhookAuthIssuedToken checks audience/group policy with real TokenRequest
+// tokens from an in-process apiserver and etcd, through the verifier and HTTP handler.
+// Bearers are presented manually; automatic outbound attachment and deployed-cluster
+// end-to-end behavior are not exercised.
 func TestWebhookAuthIssuedToken(t *testing.T) {
 	featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, genericfeatures.APIServerWebhookAuthenticationToken, true)
 

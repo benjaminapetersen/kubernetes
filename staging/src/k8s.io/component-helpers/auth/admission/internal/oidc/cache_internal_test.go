@@ -29,6 +29,8 @@ import (
 	coreosoidc "github.com/coreos/go-oidc/v3/oidc"
 )
 
+// countingKeySet is a signature-verification seam that only decodes payloads and
+// counts calls, so cache assertions cannot establish cryptographic validity.
 type countingKeySet struct {
 	calls atomic.Int32
 }
@@ -61,6 +63,8 @@ func cacheTestToken(t *testing.T, id string, bound bool) string {
 	return header + "." + base64.RawURLEncoding.EncodeToString(payload) + "." + base64.RawURLEncoding.EncodeToString([]byte("signature"))
 }
 
+// TestVerifiedTokenCacheSkipsRepeatedSignatureOnlyForValidClaims checks positive-only
+// caching, copied groups, and stale-entry misses with a counting KeySet, not real crypto.
 func TestVerifiedTokenCacheSkipsRepeatedSignatureOnlyForValidClaims(t *testing.T) {
 	// Real-signature tests cover trust; this KeySet seam counts crypto calls so
 	// an accidentally broader cache cannot hide claim-policy failures.

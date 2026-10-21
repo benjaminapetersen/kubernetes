@@ -18,6 +18,10 @@ limitations under the License.
 // It provides an HTTP handler and a verifier for already-decoded requests. Both
 // require the webhook's configured audience; failed verification never reaches
 // the downstream admission handler.
+//
+// Review-only walkthrough: start at 1.) on WithTokenVerification, or 2.) for a
+// framework that already decodes AdmissionReviews. Numbers identify function
+// notes, not declaration order. This library has no main function.
 package admission // import "k8s.io/component-helpers/auth/admission"
 
 import (
@@ -45,6 +49,9 @@ var (
 	codecs = serializer.NewCodecFactory(scheme)
 )
 
+// 20.) Import-time setup, before the consumer's main: AddToScheme registers v1
+// AdmissionReview types for the shared Kubernetes decoder. Must panics only if
+// registration fails; importing this package does not discover signing keys.
 func init() {
 	utilruntime.Must(admissionv1.AddToScheme(scheme))
 }
@@ -81,12 +88,18 @@ type builder struct {
 
 // newBuilder returns a builder seeded with the handler defaults, ready for
 // options to mutate.
+//
+// 5.) Both startup constructors allocate these private defaults before applying
+// options. This is configuration assembly only; it performs no token or key work.
 func newBuilder() *builder {
 	return &builder{maxBody: defaultMaxBodyBytes}
 }
 
 // withMaxBodyBytes lets tests cover the body limit without exposing another
 // configuration knob on the public webhook API.
+//
+// 21.) Test seam: the export_test wrapper applies a small limit to exercise
+// rejection cheaply. Production callers retain the fixed 8 MiB default.
 func withMaxBodyBytes(n int64) Option {
 	return func(b *builder) {
 		if n > 0 {
@@ -100,6 +113,10 @@ func withMaxBodyBytes(n int64) Option {
 // client is used for discovery and JWKS requests; use one without credentials
 // because the advertised JWKS URI may have a different origin. A nil client
 // uses the default transport.
+//
+// 4.) Setup option for a nonlocal issuer: captures issuer, audience, and client
+// for either constructor. The closure selects remote mode; discovery happens
+// later in buildVerifier, not when this option is created.
 func WithRemoteIssuer(issuer, audience string, client *http.Client) Option {
 	return func(b *builder) {
 		b.remoteSet = true
@@ -114,6 +131,10 @@ func WithRemoteIssuer(issuer, audience string, client *http.Client) Option {
 // https://<name>.<namespace>.svc:<port><path> for a Service reference (default
 // port 443, path "/"). Never derive it from the request or token. Empty values
 // or combining this option with [WithRemoteIssuer] fail at construction.
+//
+// 3.) Setup option: application code passes a trusted deployment audience to
+// either constructor. The returned closure only records configuration; it does
+// not infer the expected audience from a request, token, or network lookup.
 func WithAudience(audience string) Option {
 	return func(b *builder) {
 		b.explicitAudience = true
@@ -122,6 +143,10 @@ func WithAudience(audience string) Option {
 }
 
 // withInClusterEndpoint replaces in-cluster discovery for tests without changing modes.
+//
+// 22.) Test seam: supply a controlled API-server endpoint and HTTP client without
+// selecting remote mode. Real in-cluster callers use projected ServiceAccount
+// credentials through internal/oidc instead of this private option.
 func withInClusterEndpoint(apiServerURL string, client *http.Client) Option {
 	return func(b *builder) {
 		b.inClusterURL = apiServerURL
@@ -143,6 +168,10 @@ type Handler struct {
 // with invalid tokens return HTTP 200/Allowed:false so failurePolicy: Ignore
 // cannot override the denial. Use failurePolicy: Fail if missing credentials
 // or an unavailable webhook must block admission. A nil next panics.
+//
+// 1.) Startup entrypoint: application setup (often main) calls admission.WithTokenVerification
+// and registers the returned handler with its HTTP mux. Construction establishes
+// issuer/key trust; next is the application's later per-request admission policy.
 func WithTokenVerification(ctx context.Context, next AdmissionHandler, opts ...Option) (*Handler, error) {
 	if next == nil {
 		panic("admission: next AdmissionHandler must not be nil")
@@ -162,6 +191,10 @@ func WithTokenVerification(ctx context.Context, next AdmissionHandler, opts ...O
 
 // buildVerifier validates the expected audience before doing discovery. An
 // inbound request and its bearer token cannot establish the webhook's identity.
+//
+// 6.) Startup trust selection: reject missing/conflicting audience settings,
+// then construct the local or remote OIDC authenticator behind internal/verify.
+// These constructors do discovery and load usable signing keys before serving.
 func (b *builder) buildVerifier(ctx context.Context) (*verify.Verifier, error) {
 	if b.remoteSet && b.explicitAudience {
 		return nil, errors.New("admission: WithAudience cannot be combined with WithRemoteIssuer")
@@ -178,11 +211,17 @@ func (b *builder) buildVerifier(ctx context.Context) (*verify.Verifier, error) {
 	return oidc.NewLocalKeySetVerifier(ctx, b.inClusterURL, b.audience, b.inClusterClient)
 }
 
+// 7.) After trust construction, retain the shared public Verifier, callback,
+// and body limit. This wiring does not process a request or run the callback.
 func newHandler(v *verify.Verifier, next AdmissionHandler, maxBody int64) *Handler {
 	return &Handler{verifier: &Verifier{verifier: v}, next: next, maxBody: maxBody}
 }
 
 // ServeHTTP implements http.Handler.
+//
+// 8.) Request entrypoint: net/http invokes this registered handler for each
+// incoming request. Extract the bearer, decode once, and call Verify before
+// dispatching the decoded request to next; never call policy on a denial.
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -210,12 +249,19 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 // denyPreDecode returns a generic 401 when there is no request UID to echo.
+//
+// 15.) ServeHTTP's early failure path has no decoded request UID. Log the local
+// reason and emit only a generic HTTP 401, without calling the policy callback.
 func denyPreDecode(ctx context.Context, w http.ResponseWriter, reason string) {
 	klog.FromContext(ctx).V(2).Info("Admission webhook token verification denied", "reason", reason)
 	http.Error(w, genericDenyMessage, http.StatusUnauthorized)
 }
 
 // deniedResponse returns an explicit denial that failurePolicy: Ignore cannot override.
+//
+// 16.) For a decoded request, build Allowed:false with a generic status. The
+// surrounding writeResponse still uses HTTP 200; this is an admission denial,
+// not a transport failure that failurePolicy: Ignore could skip.
 func deniedResponse() *admissionv1.AdmissionResponse {
 	return &admissionv1.AdmissionResponse{
 		Allowed: false,
@@ -229,6 +275,10 @@ func deniedResponse() *admissionv1.AdmissionResponse {
 
 // writeResponse wraps the downstream response in a v1 AdmissionReview and
 // writes it as HTTP 200 JSON. A nil response fails closed as a denial.
+//
+// 17.) Final HTTP step: copy the callback/denial response to set this request's
+// UID, wrap it in v1 AdmissionReview JSON, and return HTTP 200. A nil callback
+// response is replaced by a denial rather than treated as permission.
 func writeResponse(w http.ResponseWriter, req *admissionv1.AdmissionRequest, resp *admissionv1.AdmissionResponse) {
 	if resp == nil {
 		resp = deniedResponse()
@@ -248,6 +298,10 @@ func writeResponse(w http.ResponseWriter, req *admissionv1.AdmissionRequest, res
 }
 
 // decodeReview limits the body and returns a non-sensitive reason for invalid reviews.
+//
+// 10.) Request decoding: read and close the body once under the size cap, then
+// use Kubernetes' registered deserializer to require a nonnil AdmissionRequest.
+// Decoding establishes shape, not caller authenticity or admission permission.
 func (h *Handler) decodeReview(r *http.Request) (review *admissionv1.AdmissionReview, reason string, ok bool) {
 	if r.Body == nil {
 		return nil, "request body is not a decodable AdmissionReview", false
@@ -278,6 +332,10 @@ func (h *Handler) decodeReview(r *http.Request) (review *admissionv1.AdmissionRe
 // switch object groups (for example Deployment /scale carries autoscaling Scale,
 // and Pod /eviction carries policy Eviction). An arbitrary SubResource is not a
 // group authorization.
+//
+// 12.) Verify calls this after authorizing the resource group. Check current and
+// old payloads against the reviewed Kind, allowing only the listed cross-group
+// subresource shapes; this is not a full Kubernetes object/schema validation.
 func checkObjectGroup(req *admissionv1.AdmissionRequest) error {
 	if req == nil {
 		return errors.New("admission request is nil")
@@ -313,6 +371,8 @@ func checkObjectGroup(req *admissionv1.AdmissionRequest) error {
 	return checkExtensionObjectGroup("oldObject", req.OldObject, group, version, kind)
 }
 
+// 13.) Normalize each Object/OldObject from raw JSON or a framework-decoded
+// runtime.Object, then pass its bytes to the same metadata check.
 func checkExtensionObjectGroup(name string, extension runtime.RawExtension, group, version, kind string) error {
 	raw := extension.Raw
 	if len(raw) == 0 && extension.Object != nil {
@@ -327,6 +387,10 @@ func checkExtensionObjectGroup(name string, extension runtime.RawExtension, grou
 
 // checkRawObjectGroup checks TypeMeta of each nonempty admitted object without
 // interpreting the resource's subresource-specific wire shape.
+//
+// 14.) Inspect only apiVersion/kind and compare with the expected group/GVK.
+// Absent objects are permitted by AdmissionReview shapes; present malformed or
+// mismatched objects fail. Resource fields remain the policy callback's concern.
 func checkRawObjectGroup(name string, raw []byte, group, version, kind string) error {
 	if len(raw) == 0 {
 		return nil
@@ -368,6 +432,10 @@ type Verifier struct {
 // webhook's configured audience. [WithRemoteIssuer] supplies an issuer and
 // audience for out-of-cluster use. A decoded request has no trusted endpoint
 // identity, so supplying neither option fails at construction.
+//
+// 2.) Alternative startup entrypoint: a framework adapter builds this verifier
+// during setup, then calls Verify for each decoded request. The adapter, not
+// this constructor, owns HTTP decoding, policy execution, and response writing.
 func NewVerifier(ctx context.Context, opts ...Option) (*Verifier, error) {
 	b := newBuilder()
 	for _, opt := range opts {
@@ -385,6 +453,10 @@ func NewVerifier(ctx context.Context, opts ...Option) (*Verifier, error) {
 //
 // It returns nil on success and the same generic error for every denial,
 // including a nil request. The specific reason is logged, not returned.
+//
+// 11.) Shared per-request gate: ServeHTTP and decoded-request adapters enter here.
+// internal/verify authenticates the bearer and checks req.Resource.Group; then
+// object checks constrain the payload. Success does not run admission policy.
 func (v *Verifier) Verify(ctx context.Context, req *admissionv1.AdmissionRequest, token string) error {
 	if req == nil {
 		klog.FromContext(ctx).V(2).Info("Webhook token verification denied", "reason", "request body is not a decodable AdmissionReview")
@@ -406,6 +478,10 @@ func (v *Verifier) Verify(ctx context.Context, req *admissionv1.AdmissionRequest
 // HealthCheck probes whether trusted issuer signing keys remain available.
 // Construction already required a receiver-owned audience; readiness never
 // grants permission to accept tokens for an unknown audience.
+//
+// 18.) A decoded-request consumer may call this from its readiness probe. It
+// refreshes trusted signing keys through internal/verify; it does not verify a
+// request or register a readiness URL for the application.
 func (v *Verifier) HealthCheck() error {
 	return v.verifier.HealthCheck()
 }
@@ -415,6 +491,9 @@ func (v *Verifier) HealthCheck() error {
 // adapter does not drift from the apiserver's parsing. ok is false for a missing
 // header, a non-Bearer scheme, or an empty token. It is exported so a caller that
 // decodes the review itself can obtain the token for [Verifier.Verify].
+//
+// 9.) Header parsing for ServeHTTP or a framework's own HTTP boundary. The
+// returned string is still untrusted; only Verifier.Verify authenticates it.
 func BearerToken(r *http.Request) (token string, ok bool) {
 	auth := strings.TrimSpace(r.Header.Get("Authorization"))
 	if auth == "" {
@@ -433,6 +512,9 @@ func BearerToken(r *http.Request) (token string, ok bool) {
 
 // HealthCheck reports whether the trusted issuer key set is ready. The
 // expected audience was bound to the webhook configuration at construction.
+//
+// 19.) HTTP-handler readiness delegates to the same Verifier used by ServeHTTP.
+// The application must wire this probe separately; it is not admission policy.
 func (h *Handler) HealthCheck() error {
 	return h.verifier.HealthCheck()
 }

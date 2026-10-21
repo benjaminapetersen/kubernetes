@@ -76,7 +76,8 @@ func exampleReview(group string) *admissionv1.AdmissionReview {
 	}
 }
 
-// Example_rawHTTPWebhook puts token verification in front of admission logic.
+// Example_rawHTTPWebhook runs the HTTP adapter with a local signer and a manually
+// attached bearer; it demonstrates receiver wiring, not apiserver dispatch.
 func Example_rawHTTPWebhook() {
 	// A test TLS issuer stands in for the configured OIDC issuer.
 	issuer, err := startOIDCServer()
@@ -90,7 +91,7 @@ func Example_rawHTTPWebhook() {
 		return &admissionv1.AdmissionResponse{UID: req.UID, Allowed: true}
 	}
 
-	// Bind the expected audience to the issuer, not to the inbound request.
+	// Pin the issuer and webhook audience from trusted setup, not the request.
 	h, err := admission.WithTokenVerification(context.Background(), admit,
 		admission.WithRemoteIssuer(issuer.issuer, exampleAudience, issuer.client()))
 	if err != nil {
@@ -120,8 +121,8 @@ func Example_rawHTTPWebhook() {
 	// Output: admitted
 }
 
-// Example_inClusterWebhook keeps issuer and key discovery automatic while
-// binding the expected audience to trusted webhook configuration.
+// Example_inClusterWebhook is compile-only wiring for automatic local discovery
+// with a trusted audience; it does not execute an in-cluster request.
 func Example_inClusterWebhook() {
 	admit := func(_ context.Context, req *admissionv1.AdmissionRequest) *admissionv1.AdmissionResponse {
 		return &admissionv1.AdmissionResponse{UID: req.UID, Allowed: true}
@@ -137,8 +138,8 @@ func Example_inClusterWebhook() {
 	_ = mux // Serve using your webhook's existing HTTP server.
 }
 
-// Example_controllerRuntimeStyle verifies an already-decoded review. The HTTP
-// layer must pass the bearer token separately from the AdmissionReview.
+// Example_controllerRuntimeStyle runs the decoded-review pattern with a synthetic
+// token supplied separately; it does not depend on or execute controller-runtime.
 func Example_controllerRuntimeStyle() {
 	issuer, err := startOIDCServer()
 	if err != nil {
@@ -166,8 +167,8 @@ func Example_controllerRuntimeStyle() {
 	// Output: admitted
 }
 
-// TestExampleEndToEnd_MinimalWebhook checks that a signed request reaches
-// admission logic while an unauthenticated request does not.
+// TestExampleEndToEnd_MinimalWebhook checks signed versus missing-bearer admission
+// over httptest HTTP using locally minted tokens and manual header attachment.
 func TestExampleEndToEnd_MinimalWebhook(t *testing.T) {
 	ts := newOIDCTestServer(t)
 
@@ -239,8 +240,8 @@ func TestExampleEndToEnd_MinimalWebhook(t *testing.T) {
 	}
 }
 
-// TestExampleEndToEnd_InClusterExplicitAudience exercises local issuer/JWKS
-// discovery while binding the audience independently of an inbound request.
+// TestExampleEndToEnd_InClusterExplicitAudience checks trusted-audience readiness
+// and HTTP admission using injected issuer/JWKS fixtures, not in-cluster credentials.
 func TestExampleEndToEnd_InClusterExplicitAudience(t *testing.T) {
 	ts := newOIDCTestServer(t)
 	const svcName, svcNamespace = "webhook", "default"
@@ -305,8 +306,8 @@ func TestExampleEndToEnd_InClusterExplicitAudience(t *testing.T) {
 	}
 }
 
-// TestExampleEndToEnd_InClusterSpoofedHostCannotChooseAudience guards the
-// receiver-owned expected audience against a first request for another Service.
+// TestExampleEndToEnd_InClusterSpoofedHostCannotChooseAudience checks that a forged
+// Host and wrong-audience fixture token cannot rebind the receiver's trusted audience.
 func TestExampleEndToEnd_InClusterSpoofedHostCannotChooseAudience(t *testing.T) {
 	ts := newOIDCTestServer(t)
 	trustedAudience := verify.AudienceForService("webhook", "default", 443, "/validate")

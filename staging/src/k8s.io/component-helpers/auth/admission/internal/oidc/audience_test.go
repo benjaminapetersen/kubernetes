@@ -23,9 +23,8 @@ import (
 	"k8s.io/component-helpers/auth/admission/internal/oidc"
 )
 
-// TestLocalKeySetVerifier_RequiresTrustedAudience ensures discovery never
-// creates an accept-any-audience verifier and the chosen audience cannot be
-// changed after construction.
+// TestLocalKeySetVerifier_RequiresTrustedAudience checks required audience,
+// immediate readiness, and same-versus-different rebinding with a TLS issuer fixture.
 func TestLocalKeySetVerifier_RequiresTrustedAudience(t *testing.T) {
 	s := newLocalAPIServer(t)
 	if _, err := oidc.NewLocalKeySetVerifier(context.Background(), s.URL, "", s.Client()); err == nil {

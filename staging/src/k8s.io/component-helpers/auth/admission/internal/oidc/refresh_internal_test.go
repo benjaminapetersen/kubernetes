@@ -35,6 +35,8 @@ import (
 	jose "github.com/go-jose/go-jose/v4"
 )
 
+// refreshTestClock advances signing-key refresh and retry deadlines without
+// sleeping; token timestamps and positive-cache expiry still use real time.
 type refreshTestClock struct{ nanoseconds atomic.Int64 }
 
 func newRefreshTestClock() *refreshTestClock {
@@ -48,6 +50,8 @@ func (c *refreshTestClock) advance(d time.Duration) {
 	c.nanoseconds.Add(int64(d))
 }
 
+// refreshTestIssuer is a mutable TLS discovery/JWKS fixture with request counters
+// and response gates, not an apiserver or a TokenRequest issuer.
 type refreshTestIssuer struct {
 	server *httptest.Server
 	mu     sync.Mutex
@@ -221,6 +225,8 @@ func requirePositiveCacheEntry(t *testing.T, snapshot *verifierSnapshot, token s
 	}
 }
 
+// TestRemoteSigningKeysExpireAndRevoke checks bounded, not immediate, key revocation
+// and replacement of still-live positive caches using a fake refresh clock.
 func TestRemoteSigningKeysExpireAndRevoke(t *testing.T) {
 	oldSigner, oldKey, _ := refreshSigningKey(t, jose.RS256, "old-key")
 	remainingSigner, remainingKey, _ := refreshSigningKey(t, jose.RS256, "remaining-key")
@@ -255,6 +261,8 @@ func TestRemoteSigningKeysExpireAndRevoke(t *testing.T) {
 	}
 }
 
+// TestRemoteSigningAlgorithmsRefreshWithKeys checks advertised RS256-to-ES256
+// policy and key changes take effect together only after fake-clock snapshot expiry.
 func TestRemoteSigningAlgorithmsRefreshWithKeys(t *testing.T) {
 	rsaSigner, rsaKey, _ := refreshSigningKey(t, jose.RS256, "rsa-key")
 	ecSigner, ecKey, _ := refreshSigningKey(t, jose.ES256, "ec-key")
@@ -281,6 +289,8 @@ func TestRemoteSigningAlgorithmsRefreshWithKeys(t *testing.T) {
 	}
 }
 
+// TestRemoteSigningKeysFailClosedAndRecover checks failed expiry refreshes discard
+// cached acceptance, suppress retry storms, and recover after fake-clock backoff.
 func TestRemoteSigningKeysFailClosedAndRecover(t *testing.T) {
 	tests := []struct {
 		name string
@@ -341,6 +351,8 @@ func TestRemoteSigningKeysFailClosedAndRecover(t *testing.T) {
 	}
 }
 
+// TestHealthCheckInvalidatesTheVerifyingSnapshot checks that failed health refreshes
+// remove cached acceptance and a successful check restores token verification.
 func TestHealthCheckInvalidatesTheVerifyingSnapshot(t *testing.T) {
 	signer, key, _ := refreshSigningKey(t, jose.RS256, "key")
 	server := newRefreshTestIssuer(t, []jose.JSONWebKey{key}, []string{"RS256"})
@@ -367,6 +379,8 @@ func TestHealthCheckInvalidatesTheVerifyingSnapshot(t *testing.T) {
 	wantRefreshTokenAccepted(t, auth.refreshingAuthenticator, token)
 }
 
+// TestConcurrentSigningKeyRefreshAndCanceledWaiter checks one shared refresh,
+// prompt waiter cancellation, and refresh-start expiry under a gated TLS fixture.
 func TestConcurrentSigningKeyRefreshAndCanceledWaiter(t *testing.T) {
 	signer, key, _ := refreshSigningKey(t, jose.RS256, "key")
 	server := newRefreshTestIssuer(t, []jose.JSONWebKey{key}, []string{"RS256"})
@@ -445,6 +459,8 @@ func TestConcurrentSigningKeyRefreshAndCanceledWaiter(t *testing.T) {
 	}
 }
 
+// TestUnknownKeyIDNeverFetchesPerToken checks repeated unknown-kid denials cause
+// only an expiry-triggered discovery/JWKS refresh with the fake clock.
 func TestUnknownKeyIDNeverFetchesPerToken(t *testing.T) {
 	_, key, _ := refreshSigningKey(t, jose.RS256, "published-key")
 	unknownSigner, _, _ := refreshSigningKey(t, jose.RS256, "unknown-key")
@@ -470,6 +486,8 @@ func TestUnknownKeyIDNeverFetchesPerToken(t *testing.T) {
 	}
 }
 
+// TestRemoteSigningKeysRejectTinyRSAModulus checks tiny RSA keys cannot establish
+// readiness or preserve cached acceptance, while a mixed JWKS retains its usable key.
 func TestRemoteSigningKeysRejectTinyRSAModulus(t *testing.T) {
 	signer, validKey, _ := refreshSigningKey(t, jose.RS256, "valid")
 	server := newRefreshTestIssuer(t, nil, []string{"RS256"})
@@ -513,6 +531,8 @@ func TestRemoteSigningKeysRejectTinyRSAModulus(t *testing.T) {
 	}
 }
 
+// TestRemoteSigningKeysReject1024BitRSA checks construction rejects a well-formed
+// RSA-only JWKS below the 2048-bit minimum, not just malformed key encodings.
 func TestRemoteSigningKeysReject1024BitRSA(t *testing.T) {
 	privateKey, err := rsa.GenerateKey(rand.Reader, 1024)
 	if err != nil {
@@ -526,6 +546,8 @@ func TestRemoteSigningKeysReject1024BitRSA(t *testing.T) {
 	}
 }
 
+// TestSigningKeyIDMustMatchTheVerifyingKey checks a token signed by one published
+// key cannot claim another published key's kid to bypass key selection.
 func TestSigningKeyIDMustMatchTheVerifyingKey(t *testing.T) {
 	_, firstKey, _ := refreshSigningKey(t, jose.RS256, "first")
 	_, secondKey, secondPrivate := refreshSigningKey(t, jose.RS256, "second")
@@ -543,6 +565,8 @@ func TestSigningKeyIDMustMatchTheVerifyingKey(t *testing.T) {
 	wantRefreshTokenRejected(t, auth.refreshingAuthenticator, refreshToken(t, spoofedSigner, server.issuer, "spoofed-kid"))
 }
 
+// TestLocalSigningKeysPinIssuerAndOriginOnRefresh checks changed discovery issuers
+// and off-origin JWKS redirects fail refresh and deny cached tokens with a fake clock.
 func TestLocalSigningKeysPinIssuerAndOriginOnRefresh(t *testing.T) {
 	signer, key, _ := refreshSigningKey(t, jose.RS256, "local-key")
 	server := newRefreshTestIssuer(t, []jose.JSONWebKey{key}, []string{"RS256"})
@@ -583,6 +607,8 @@ func TestLocalSigningKeysPinIssuerAndOriginOnRefresh(t *testing.T) {
 	}
 }
 
+// TestRemoteDiscoveryBodyIsBoundedOnConstructionAndRefresh checks oversized OIDC
+// discovery is rejected initially and on fake-clock refresh despite cached acceptance.
 func TestRemoteDiscoveryBodyIsBoundedOnConstructionAndRefresh(t *testing.T) {
 	signer, key, _ := refreshSigningKey(t, jose.RS256, "key")
 	server := newRefreshTestIssuer(t, []jose.JSONWebKey{key}, []string{"RS256"})

@@ -163,11 +163,8 @@ func (ts *oidcTestServer) newVerifier(t *testing.T) *verify.Verifier {
 	return v
 }
 
-// TestRemoteVerifier_EndToEnd exercises the full round trip: OIDC discovery over
-// TLS, JWKS fetch, real RS256 signature + iss/aud/exp checks, and the KEP-6060
-// claim policy layered on by the core Verifier. Every sad path must collapse into
-// the single generic verification failure (anti-enumeration) — go-oidc's typed
-// errors (expired, wrong key/issuer/audience) never surface distinguishably.
+// TestRemoteVerifier_EndToEnd checks TLS discovery, signature/issuer/audience/time
+// validation, and generic denials with a local signer, not apiserver token issuance.
 func TestRemoteVerifier_EndToEnd(t *testing.T) {
 	ts := newOIDCTestServer(t)
 
@@ -272,6 +269,8 @@ func TestRemoteVerifier_EndToEnd(t *testing.T) {
 	}
 }
 
+// TestRemoteVerifier_WebhookBindingAndAttestation checks binding-claim shape and
+// attestation policy on locally signed tokens, not referenced objects' live identity.
 func TestRemoteVerifier_WebhookBindingAndAttestation(t *testing.T) {
 	ts := newOIDCTestServer(t)
 	v := ts.newVerifier(t)
@@ -383,9 +382,8 @@ func TestRemoteVerifier_Validation(t *testing.T) {
 	}
 }
 
-// TestRemoteVerifier_DiscoveryIssuerMismatch confirms go-oidc's issuer-confusion
-// guard: if the discovery document advertises a different issuer than requested,
-// construction fails before any token is ever verified.
+// TestRemoteVerifier_DiscoveryIssuerMismatch checks construction rejects a TLS
+// discovery document whose advertised issuer differs from the configured issuer.
 func TestRemoteVerifier_DiscoveryIssuerMismatch(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/.well-known/openid-configuration", func(w http.ResponseWriter, r *http.Request) {

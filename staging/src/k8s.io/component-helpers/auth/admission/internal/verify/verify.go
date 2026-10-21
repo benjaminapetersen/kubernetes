@@ -31,6 +31,8 @@ const wildcardAPIGroup = "*"
 var errVerificationFailed = errors.New("webhook token verification failed")
 
 // TokenAuthenticator verifies a token and returns its signed admissionReviewAPIGroups.
+// Implementations must complete cryptographic and standard-claim checks before
+// returning groups on success, including when reusing a previously verified token.
 type TokenAuthenticator interface {
 	// AuthenticateToken returns verified groups; callers ignore them on error.
 	AuthenticateToken(ctx context.Context, rawToken string) (admissionReviewAPIGroups []string, err error)
@@ -48,12 +50,17 @@ type Verifier struct {
 }
 
 // NewVerifier returns a Verifier backed by authenticator.
+// 49.) OIDC's local/remote constructors wrap their authenticator at setup.
+// This stores the backend only; it does not validate it or authenticate a token.
 func NewVerifier(authenticator TokenAuthenticator) (*Verifier, error) {
 	return &Verifier{authenticator: authenticator}, nil
 }
 
 // Verify checks whether the signed attestation authorizes reviewAPIGroup.
 // It returns one generic error for any denial and logs the reason.
+// 50.) admission.Verifier passes the bearer and req.Resource.Group here.
+// Exact group or "*" matching runs on every request, including OIDC cache hits;
+// no admission business policy or live webhook-object lookup is performed here.
 func (v *Verifier) Verify(ctx context.Context, rawToken string, reviewAPIGroup string) error {
 	logger := klog.FromContext(ctx)
 
@@ -75,11 +82,15 @@ func (v *Verifier) Verify(ctx context.Context, rawToken string, reviewAPIGroup s
 }
 
 // BindAudience fixes the expected audience on the authenticator.
+// 51.) The local OIDC constructor confirms its trusted setup audience here;
+// binding checks are delegated, not inferred from the current HTTP request.
 func (v *Verifier) BindAudience(audience string) error {
 	return v.authenticator.BindAudience(audience)
 }
 
 // HealthCheck reports whether the authenticator's signing keys are ready.
+// 52.) admission.Verifier (also via Handler) delegates readiness here.
+// The OIDC backend may refresh signing keys; readiness authenticates no request.
 func (v *Verifier) HealthCheck() error {
 	return v.authenticator.HealthCheck()
 }

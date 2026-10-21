@@ -49,6 +49,8 @@ type verifiedToken struct {
 	expiry time.Time
 }
 
+// 36.) Each key snapshot gets a bounded LRU for positive token-claim results only.
+// Invalid tokens and per-AdmissionReview decisions are never cached here.
 func newTokenCache() *cache.LRUExpireCache {
 	return cache.NewLRUExpireCache(maxCachedTokens)
 }
@@ -71,6 +73,9 @@ type webhookPrivateClaims struct {
 
 // verifyTokenGroups caches only successfully verified token claims. Every
 // AdmissionReview still undergoes API-group and object checks separately.
+//
+// 40.) AuthenticateToken caches successful token claims, not admission decisions.
+// The binding check is claim-only; API-group/object policy is rerun by the caller.
 func verifyTokenGroups(ctx context.Context, verifier *coreosoidc.IDTokenVerifier, issuer, rawToken string, tokenCache *cache.LRUExpireCache) ([]string, error) {
 	var tokenKey [sha256.Size]byte
 	if tokenCache != nil {
@@ -91,6 +96,7 @@ func verifyTokenGroups(ctx context.Context, verifier *coreosoidc.IDTokenVerifier
 		return nil, fmt.Errorf("oidc: token issuer %q is not the expected issuer", parsed.Issuer)
 	}
 
+	// go-oidc enforces signature, issuer, audience and expiry before custom claims.
 	idToken, err := verifier.Verify(ctx, rawToken)
 	if err != nil {
 		return nil, err
@@ -161,12 +167,16 @@ type refreshingAuthenticator struct {
 type oidcAuthenticator struct{ *refreshingAuthenticator }
 type boundAuthenticator struct{ *refreshingAuthenticator }
 
+// 34.) Both startup paths publish the initial key snapshot and share refresh state.
+// No timer starts: requests and readiness probes initiate bounded refreshes.
 func newRefreshingAuthenticator(issuer, audience string, keys *jwksKeySet, algorithms []string, loadKeys func(context.Context) (*jwksKeySet, []string, error), now func() time.Time, refreshStartedAt time.Time) *refreshingAuthenticator {
 	a := &refreshingAuthenticator{issuer: issuer, audience: audience, loadKeys: loadKeys, now: now}
 	a.current.Store(a.snapshot(keys, algorithms, refreshStartedAt))
 	return a
 }
 
+// 35.) Startup and successful refreshes pair validated keys with a new positive cache.
+// Cached claims cannot carry over to a replacement key set.
 func (a *refreshingAuthenticator) snapshot(keys *jwksKeySet, algorithms []string, refreshStartedAt time.Time) *verifierSnapshot {
 	return &verifierSnapshot{
 		verifier: coreosoidc.NewVerifier(a.issuer, keys, &coreosoidc.Config{
@@ -183,6 +193,9 @@ func (a *refreshingAuthenticator) snapshot(keys *jwksKeySet, algorithms []string
 // AuthenticateToken checks the snapshot deadline before even consulting a
 // positive token cache. If a refresh races verification, recheck against the
 // replacement rather than returning a result signed by removed keys.
+//
+// 37.) Per-request token authentication precedes the caller's group/object checks.
+// Cached claims still require fresh keys; a racing snapshot replacement triggers a retry.
 func (a *refreshingAuthenticator) AuthenticateToken(ctx context.Context, rawToken string) ([]string, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -200,6 +213,8 @@ func (a *refreshingAuthenticator) AuthenticateToken(ctx context.Context, rawToke
 	return nil, errors.New("oidc: signing keys changed during token verification")
 }
 
+// 38.) Authentication reuses fresh keys; readiness forces a fetch through this path.
+// One on-demand refresh is shared; canceling a waiter does not cancel that fetch.
 func (a *refreshingAuthenticator) freshSnapshot(ctx context.Context, force bool) (*verifierSnapshot, error) {
 	if !force {
 		if snapshot := a.current.Load(); snapshot != nil && a.now().Before(snapshot.validUntil) {
@@ -243,6 +258,8 @@ func (a *refreshingAuthenticator) freshSnapshot(ctx context.Context, force bool)
 	}
 }
 
+// 39.) freshSnapshot starts this shared goroutine with its own ten-second deadline.
+// Success swaps keys/cache together; failure drops old trust and records a retry delay.
 func (a *refreshingAuthenticator) refresh(attempt *signingKeyRefresh) {
 	ctx, cancel := context.WithTimeout(context.Background(), signingKeyRefreshTimeout)
 	defer cancel()
@@ -267,6 +284,8 @@ func (a *refreshingAuthenticator) refresh(attempt *signingKeyRefresh) {
 	a.mu.Unlock()
 }
 
+// 41.) Constructor-time binding confirms the configured audience without mutating it.
+// Rebinding a verifier to a different webhook audience is rejected.
 func (a *refreshingAuthenticator) BindAudience(audience string) error {
 	if audience == "" {
 		return errors.New("oidc: audience must not be empty")
@@ -279,11 +298,16 @@ func (a *refreshingAuthenticator) BindAudience(audience string) error {
 
 // HealthCheck fetches a fresh snapshot through the same path as verification.
 // It cannot report a different JWKS ready while verification keeps stale keys.
+//
+// 42.) A consumer readiness probe calls here, separately from request authentication.
+// It forces or joins the shared refresh and changes the snapshot used by requests.
 func (a *refreshingAuthenticator) HealthCheck() error {
 	_, err := a.freshSnapshot(context.Background(), true)
 	return err
 }
 
+// 31.) The remote loader intersects discovery's algorithms with the asymmetric allowlist.
+// Missing metadata uses RS256; unsupported-only metadata leaves no accepted algorithm.
 func approvedRemoteSigningAlgs(advertised []string) []string {
 	if len(advertised) == 0 {
 		return []string{"RS256"} // go-oidc's default when discovery omits algorithms.
@@ -307,6 +331,8 @@ func approvedRemoteSigningAlgs(advertised []string) []string {
 // without changing the TLS transport or redirect policy used for JWKS requests.
 type discoveryBodyLimitTransport struct{ http.RoundTripper }
 
+// 33.) net/http invokes this outbound transport wrapper during remote discovery.
+// It caps bytes read by go-oidc; it does not serve an admission webhook URL.
 func (t discoveryBodyLimitTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	resp, err := t.RoundTripper.RoundTrip(req)
 	if err != nil {
@@ -318,6 +344,8 @@ func (t discoveryBodyLimitTransport) RoundTrip(req *http.Request) (*http.Respons
 	return resp, nil
 }
 
+// 32.) Remote discovery gets a copied client whose transport caps response bodies.
+// This is an outbound-client helper, not an incoming request handler.
 func boundedDiscoveryClient(client *http.Client) *http.Client {
 	bounded := *client
 	transport := bounded.Transport
@@ -328,6 +356,8 @@ func boundedDiscoveryClient(client *http.Client) *http.Client {
 	return &bounded
 }
 
+// 30.) The remote loader rediscovers metadata on startup and every key refresh.
+// Only approved algorithms and usable public keys become a verifier snapshot.
 func loadRemoteSigningKeys(ctx context.Context, issuer string, client *http.Client) (*jwksKeySet, []string, error) {
 	// NewProvider checks the pinned issuer on every refresh, not just at
 	// construction. Check the claim explicitly too: an injected OIDC context
@@ -362,6 +392,8 @@ func loadRemoteSigningKeys(ctx context.Context, issuer string, client *http.Clie
 	return keys, algorithms, nil
 }
 
+// 29.) NewRemoteVerifier calls here to pin issuer/audience and fetch startup keys.
+// Its reload closure preserves that issuer/client for later on-demand refreshes.
 func newRemoteAuthenticator(ctx context.Context, issuer, audience string, httpClient *http.Client, now func() time.Time) (*boundAuthenticator, error) {
 	if issuer == "" {
 		return nil, errors.New("oidc: issuer must not be empty")
@@ -391,6 +423,9 @@ func newRemoteAuthenticator(ctx context.Context, issuer, audience string, httpCl
 // pins the discovered issuer and configured audience, validates asymmetric
 // signatures, and refreshes its JWKS and token cache after at most 60 seconds.
 // A removed key may remain usable until that deadline; refresh failures deny.
+//
+// 28.) Remote-mode startup supplies the trusted issuer and audience here.
+// The returned verifier handles later requests; this constructor registers no HTTP route.
 func NewRemoteVerifier(ctx context.Context, issuer, audience string, httpClient *http.Client) (*verify.Verifier, error) {
 	authenticator, err := newRemoteAuthenticator(ctx, issuer, audience, httpClient, time.Now)
 	if err != nil {

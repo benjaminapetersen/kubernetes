@@ -298,8 +298,8 @@ func newRequest(t *testing.T, body []byte, token string) *http.Request {
 	return r
 }
 
-// TestWithTokenVerification_EndToEnd checks that failed requests cannot reach
-// admission logic or disclose claim details in the response.
+// TestWithTokenVerification_EndToEnd checks admission gating and generic failures
+// with locally signed tokens and TLS OIDC fixtures, not apiserver-issued tokens.
 func TestWithTokenVerification_EndToEnd(t *testing.T) {
 	ts := newOIDCTestServer(t)
 	v := ts.verifier(t)
@@ -436,10 +436,8 @@ func TestWithTokenVerification_EndToEnd(t *testing.T) {
 	}
 }
 
-// TestWithTokenVerification_ForwardsRequestAndEchoesUID proves the seam: on a
-// valid token the adapter forwards the DECODED AdmissionRequest to the
-// downstream AdmissionHandler, then wraps the handler's AdmissionResponse in an
-// AdmissionReview whose response UID echoes the request UID.
+// TestWithTokenVerification_ForwardsRequestAndEchoesUID checks that verified
+// requests reach admission logic decoded and responses echo the request UID.
 func TestWithTokenVerification_ForwardsRequestAndEchoesUID(t *testing.T) {
 	ts := newOIDCTestServer(t)
 	v := ts.verifier(t)
@@ -479,6 +477,8 @@ func TestWithTokenVerification_ForwardsRequestAndEchoesUID(t *testing.T) {
 	}
 }
 
+// TestWithTokenVerification_DoesNotMutateSharedDownstreamResponse checks that
+// sequential requests echo their own UIDs without mutating a reused response.
 func TestWithTokenVerification_DoesNotMutateSharedDownstreamResponse(t *testing.T) {
 	ts := newOIDCTestServer(t)
 	shared := &admissionv1.AdmissionResponse{Allowed: false}
@@ -513,9 +513,8 @@ func TestWithTokenVerification_DoesNotMutateSharedDownstreamResponse(t *testing.
 	}
 }
 
-// TestWithTokenVerification_OverHTTPServer runs the adapter behind a real
-// httptest.Server to demonstrate the end-to-end wire path, including the
-// Authorization header travelling over an actual HTTP round trip.
+// TestWithTokenVerification_OverHTTPServer checks an allowed review over an
+// httptest HTTP round trip; the test client manually sets the synthetic bearer.
 func TestWithTokenVerification_OverHTTPServer(t *testing.T) {
 	ts := newOIDCTestServer(t)
 	v := ts.verifier(t)
@@ -581,6 +580,8 @@ func TestWithTokenVerification_UndecodableBodyFailsClosed(t *testing.T) {
 	assertNoLeak(t, rec.Body.String())
 }
 
+// TestWithTokenVerification_LargeUpdateReview checks that a multi-megabyte review
+// below the default limit forwards both update objects and echoes the request UID.
 func TestWithTokenVerification_LargeUpdateReview(t *testing.T) {
 	ts := newOIDCTestServer(t)
 	spy := newSpyHandler()
@@ -611,9 +612,8 @@ func TestWithTokenVerification_LargeUpdateReview(t *testing.T) {
 	}
 }
 
-// TestWithTokenVerification_OverLimitBodyRejected proves the over-limit body
-// guard: a body larger than the configured limit is rejected with a generic 401,
-// never decoded truncated or forwarded downstream.
+// TestWithTokenVerification_OverLimitBodyRejected checks an injected small body
+// limit produces a generic 401 without forwarding an oversized review downstream.
 func TestWithTokenVerification_OverLimitBodyRejected(t *testing.T) {
 	ts := newOIDCTestServer(t)
 	v := ts.verifier(t)

@@ -24,6 +24,8 @@ import (
 	admissionv1 "k8s.io/api/admission/v1"
 )
 
+// TestInClusterRequiresTrustedAudienceBeforeDiscovery checks that both public
+// constructors reject missing or empty receiver-owned audiences before discovery.
 func TestInClusterRequiresTrustedAudienceBeforeDiscovery(t *testing.T) {
 	ctx := context.Background()
 	admit := func(context.Context, *admissionv1.AdmissionRequest) *admissionv1.AdmissionResponse {

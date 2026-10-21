@@ -22,8 +22,8 @@ import (
 	"testing"
 )
 
-// TestAntiEnumeration_RejectionsAreGeneric ensures policy and authenticator
-// failures have indistinguishable caller-visible errors.
+// TestAntiEnumeration_RejectionsAreGeneric checks identical caller-visible errors
+// for policy and injected authenticator failures, not timing-side-channel resistance.
 func TestAntiEnumeration_RejectionsAreGeneric(t *testing.T) {
 	generic := errVerificationFailed.Error()
 
